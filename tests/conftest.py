@@ -3,7 +3,14 @@ Pytest configuration and shared fixtures.
 """
 import pytest
 import logging
+import sys
+from pathlib import Path
 from datetime import datetime
+
+# Add backend src to Python path
+backend_src_path = Path(__file__).parent.parent / "backend"
+sys.path.insert(0, str(backend_src_path))
+
 from src.domain import URLInfo, ContentMetrics, ContentType, ScrapingStatus
 
 

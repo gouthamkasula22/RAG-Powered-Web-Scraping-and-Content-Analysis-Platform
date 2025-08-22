@@ -5,6 +5,7 @@ Verifies Gemini + Claude integration works correctly.
 import asyncio
 import os
 import sys
+import pytest
 from pathlib import Path
 
 # Add project root to path for imports
@@ -29,114 +30,56 @@ except ImportError:
 from src.infrastructure.llm.service import ProductionLLMService, LLMServiceConfig
 from src.application.interfaces.llm import AnalysisRequest
 
-async def test_llm_service():
-    """Test the production LLM service"""
-    
-    print("🧪 Testing Production LLM Service")
-    print("=" * 50)
-    
-    # Create service configuration
-    config = LLMServiceConfig()
-    
-    try:
-        # Initialize service
-        print("📝 Initializing LLM service...")
-        service = ProductionLLMService(config)
-        
-        # Check health status
-        health = service.get_health_status()
-        print(f"🏥 Service Health: {'✅ Healthy' if health['healthy'] else '❌ Unhealthy'}")
-        print(f"📊 Available Providers: {health['total_available']}")
-        
-        for provider_name, provider_info in health['providers'].items():
-            status = "✅ Available" if provider_info['available'] else "❌ Unavailable"
-            cost = provider_info['cost_per_1k']
-            print(f"   {provider_name}: {status} (${cost:.4f}/1K tokens)")
-        
-        # Test with sample content
-        test_content = """
-        This is a sample web page content for testing LLM analysis.
-        
-        About Our Company
-        We are a technology company focused on building innovative solutions.
-        Our products help businesses streamline their operations and improve efficiency.
-        
-        Key Features:
-        - Advanced analytics dashboard
-        - Real-time data processing  
-        - Scalable cloud infrastructure
-        - 24/7 customer support
-        
-        Contact us today to learn more about how we can help your business grow.
-        """
-        
-        print("\n🎯 Testing content analysis...")
-        
-        # Create analysis request
-        request = AnalysisRequest(
-            content=test_content,
-            analysis_type="comprehensive",
-            max_cost=0.01,  # Low cost limit for testing
-            quality_preference="balanced"
-        )
-        
-        # Perform analysis
-        print("🚀 Starting analysis...")
-        response = await service.analyze_content(request)
-        
-        if response.success:
-            print("✅ Analysis completed successfully!")
-            print(f"🤖 Provider: {response.provider.value}")
-            print(f"💰 Cost: ${response.cost:.6f}")
-            print(f"⏱️  Time: {response.processing_time:.2f}s")
-            print(f"🎯 Tokens: {response.tokens_used}")
-            print("\n📄 Analysis Result:")
-            print("-" * 40)
-            # Show first 500 chars of response
-            preview = response.content[:500]
-            if len(response.content) > 500:
-                preview += "..."
-            print(preview)
-        else:
-            print("❌ Analysis failed!")
-            print(f"Error: {response.error_message}")
-            
-    except Exception as e:
-        print(f"❌ Test failed with error: {str(e)}")
-        import traceback
-        traceback.print_exc()
+@pytest.mark.integration
+@pytest.mark.skipif(not (os.getenv("GOOGLE_API_KEY") or os.getenv("ANTHROPIC_API_KEY")), reason="No LLM API keys configured")
+def test_llm_service():
+    """Synchronous pytest wrapper that runs the async LLM service test."""
 
-if __name__ == "__main__":
-    # Check for environment variables (more flexible)
-    gemini_key = os.getenv("GOOGLE_API_KEY")
-    claude_key = os.getenv("ANTHROPIC_API_KEY")
-    
-    if not gemini_key and not claude_key:
-        print("⚠️  No LLM API keys found in environment")
-        print("Set at least one of these in your .env file:")
-        print("   - GOOGLE_API_KEY (for free Gemini tier)")
-        print("   - ANTHROPIC_API_KEY (for premium Claude)")
-        print("\n🔧 For testing architecture only, we'll demonstrate the service structure...")
-        
-        # Show architecture test
+    async def _run():
+        print("🧪 Testing Production LLM Service")
+        print("=" * 50)
         config = LLMServiceConfig()
         try:
+            print("📝 Initializing LLM service...")
             service = ProductionLLMService(config)
             health = service.get_health_status()
-            print(f"\n🏗️  Service Architecture: ✅ Loaded")
-            print(f"📊 Provider Framework: {len(health['providers'])} provider slots")
-            print(f"🔧 Configuration: ✅ Valid")
-            print("\n✅ LLM infrastructure is properly implemented!")
-            print("🚀 Ready for API keys to enable full functionality.")
+            print(f"🏥 Service Health: {'✅ Healthy' if health['healthy'] else '❌ Unhealthy'}")
+            print(f"📊 Available Providers: {health['total_available']}")
+            for provider_name, provider_info in health['providers'].items():
+                status = "✅ Available" if provider_info['available'] else "❌ Unavailable"
+                cost = provider_info['cost_per_1k']
+                print(f"   {provider_name}: {status} (${cost:.4f}/1K tokens)")
+
+            test_content = "Sample content for LLM service functional test."  # Keep short for speed
+            request = AnalysisRequest(
+                content=test_content,
+                analysis_type="comprehensive",
+                max_cost=0.005,
+                quality_preference="balanced"
+            )
+            print("🚀 Starting analysis...")
+            response = await service.analyze_content(request)
+            if response.success:
+                print("✅ Analysis completed successfully!")
+                print(f"🤖 Provider: {response.provider.value}")
+                print(f"💰 Cost: ${response.cost:.6f}")
+                preview = response.content[:120]
+                print(preview + ("..." if len(response.content) > 120 else ""))
+            else:
+                print("❌ Analysis failed!")
+                print(f"Error: {response.error_message}")
+            assert response is not None
+            assert hasattr(response, "success")
+            if response.success:
+                assert response.content
         except Exception as e:
-            print(f"❌ Architecture error: {e}")
-        
-        sys.exit(0)
-    
-    if gemini_key:
-        print("✅ Gemini API key found - free tier available")
-    if claude_key:
-        print("✅ Claude API key found - premium tier available")
-    
-    # Run the full test
-    asyncio.run(test_llm_service())
+            print(f"❌ Test failed with error: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            raise
+
+    asyncio.run(_run())
+
+if __name__ == "__main__":
+    # Allow running standalone
+    test_llm_service()

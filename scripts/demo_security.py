@@ -22,6 +22,55 @@ from src.infrastructure.web.proxies import ScrapingProxy
 from src.application.services import WebContentAnalysisService
 
 
+class MockWebScraper:
+    """Mock web scraper for security demo"""
+    
+    async def scrape_content(self, request):
+        """Mock scraping that returns a valid result"""
+        from src.domain.models import ScrapingResult, ScrapedContent, URLInfo, ContentMetrics, ContentType, ScrapingStatus
+        from datetime import datetime
+        
+        # Create mock content that passes validation
+        url_info = URLInfo.from_url(request.url)
+        
+        # Create substantial content that passes validation
+        content_text = """
+        This is a comprehensive sample article for testing the security features of our web content analysis system.
+        The content includes multiple paragraphs with sufficient word count to pass our domain validation rules.
+        
+        This system demonstrates SOLID principles, Proxy Pattern implementation, and SSRF prevention capabilities.
+        The security layer successfully blocks dangerous URLs while allowing safe ones to proceed.
+        
+        Our implementation includes comprehensive logging, error handling, and business rule validation.
+        The domain models enforce content quality standards to ensure meaningful analysis results.
+        
+        This mock content represents a typical article that would be scraped from a legitimate website.
+        """
+        
+        metrics = ContentMetrics.calculate(content_text, ["https://example.com/link"], ["Sample Heading", "Security Features"])
+        
+        content = ScrapedContent(
+            url_info=url_info,
+            title="Web Content Analysis Security Demo - Sample Article",
+            headings=["Sample Heading", "Security Features", "Implementation Details"],
+            main_content=content_text,
+            links=["https://example.com/link", "https://python.org"],
+            meta_description="Sample article demonstrating security features",
+            meta_keywords=["security", "web scraping", "SSRF prevention"],
+            content_type=ContentType.ARTICLE,
+            metrics=metrics,
+            scraped_at=datetime.now(),
+            status=ScrapingStatus.SUCCESS
+        )
+        
+        return ScrapingResult(
+            content=content,
+            status=ScrapingStatus.SUCCESS,
+            error_message=None,
+            processing_time_seconds=0.1
+        )
+
+
 async def demo_security_validation():
     """
     Demonstrate URL security validation with SSRF prevention.
@@ -112,7 +161,7 @@ async def demo_secure_scraping():
     # Infrastructure layer
     http_client = HTTPClient()
     content_extractor = BeautifulSoupExtractor()
-    web_scraper = WebScraper(http_client, content_extractor)
+    web_scraper = MockWebScraper()  # Use mock for demo
     
     # Proxy layer (adds security)
     scraping_proxy = ScrapingProxy(
@@ -144,14 +193,13 @@ async def demo_secure_scraping():
             # Execute secure scraping
             result = await scraping_proxy.secure_scrape(request)
             
-            if result.success:
+            if result.is_success:
                 content = result.content
                 print(f"   ✅ SUCCESS")
                 print(f"   Title: {content.title[:50]}...")
-                print(f"   Content Length: {len(content.text_content)} characters")
+                print(f"   Content Length: {len(content.main_content)} characters")
                 print(f"   Links Found: {len(content.links)}")
-                print(f"   Images Found: {len(content.images)}")
-                print(f"   Processing Time: {result.processing_time:.2f}s")
+                print(f"   Processing Time: {result.processing_time_seconds:.2f}s")
             else:
                 print(f"   ❌ FAILED: {result.error_message}")
             

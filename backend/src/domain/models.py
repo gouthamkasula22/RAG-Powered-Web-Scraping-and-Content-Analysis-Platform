@@ -481,19 +481,102 @@ class ScrapingRequest:
             raise ValueError(f"Invalid URL in scraping request: {self.url}") from e
 
 
+# ==========================================
+# CONTENT ANALYSIS MODELS (WBS 2.2)
+# ==========================================
+
 class AnalysisStatus(Enum):
-    """Status enumeration for analysis operations"""
+    """Status of analysis process"""
     PENDING = "pending"
     PROCESSING = "processing"
+    SCRAPING = "scraping"
+    ANALYZING = "analyzing"
     COMPLETED = "completed"
     FAILED = "failed"
-    CANCELLED = "cancelled"
 
 
 class AnalysisType(Enum):
-    """Analysis type enumeration"""
+    """Types of analysis supported"""
     COMPREHENSIVE = "comprehensive"
     SEO_FOCUSED = "seo_focused"
     UX_FOCUSED = "ux_focused"
     CONTENT_QUALITY = "content_quality"
-    SECURITY_AUDIT = "security_audit"
+    COMPETITIVE = "competitive"
+
+
+@dataclass
+class AnalysisMetrics:
+    """Quantified analysis metrics"""
+    content_quality_score: float  # 1-10
+    seo_score: float              # 1-10
+    ux_score: float               # 1-10
+    readability_score: float      # 1-10
+    engagement_score: float       # 1-10
+    overall_score: float          # 1-10
+
+    def __post_init__(self):
+        """Validate scores are within 1-10 range"""
+        scores = [
+            self.content_quality_score, self.seo_score, self.ux_score,
+            self.readability_score, self.engagement_score, self.overall_score
+        ]
+        for score in scores:
+            if not 1.0 <= score <= 10.0:
+                raise ValueError(f"Score {score} must be between 1.0 and 10.0")
+
+
+@dataclass
+class AnalysisInsights:
+    """Structured analysis insights"""
+    strengths: List[str] = field(default_factory=list)
+    weaknesses: List[str] = field(default_factory=list)
+    opportunities: List[str] = field(default_factory=list)
+    threats: List[str] = field(default_factory=list)
+    key_findings: List[str] = field(default_factory=list)
+    recommendations: List[str] = field(default_factory=list)
+
+
+@dataclass
+class AnalysisResult:
+    """Complete analysis result"""
+    # Metadata
+    url: str
+    analysis_id: str
+    analysis_type: AnalysisType
+    status: AnalysisStatus
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+    
+    # Source Data
+    scraped_content: Optional[ScrapedContent] = None
+    
+    # LLM Response (using Any to avoid circular imports)
+    llm_response: Optional[Any] = None
+    
+    # Structured Analysis
+    executive_summary: str = ""
+    metrics: Optional[AnalysisMetrics] = None
+    insights: Optional[AnalysisInsights] = None
+    detailed_analysis: Dict[str, Any] = field(default_factory=dict)
+    
+    # Performance Data
+    processing_time: float = 0.0
+    cost: float = 0.0
+    provider_used: str = ""
+    
+    # Error Handling
+    error_message: Optional[str] = None
+    warnings: List[str] = field(default_factory=list)
+
+    def __post_init__(self):
+        """Validate analysis result data"""
+        if not self.url:
+            raise ValueError("URL is required for analysis result")
+        if not self.analysis_id:
+            raise ValueError("Analysis ID is required")
+        if self.processing_time < 0:
+            raise ValueError("Processing time cannot be negative")
+        if self.cost < 0:
+            raise ValueError("Cost cannot be negative")
+
+

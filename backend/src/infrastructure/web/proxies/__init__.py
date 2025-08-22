@@ -52,73 +52,73 @@ class ScrapingProxy(IScrapingProxy):
             # Step 2: Rate limiting check
             domain = self._extract_domain(request.url)
             if not await self._check_rate_limits(domain):
-                from src.domain.models import ScrapingStatus
                 return ScrapingResult(
+                    success=False,
                     content=None,
-                    status=ScrapingStatus.BLOCKED,
                     error_message="Rate limit exceeded for domain",
-                    processing_time_seconds=time.time() - start_time
+                    status_code=429,
+                    processing_time=time.time() - start_time
                 )
             
             # Step 3: Pre-flight request to validate accessibility
             if await self._should_perform_preflight(request):
                 if not await self._perform_preflight_check(request):
-                    from src.domain.models import ScrapingStatus
                     return ScrapingResult(
+                        success=False,
                         content=None,
-                        status=ScrapingStatus.FAILED,
                         error_message="Preflight check failed - URL not accessible",
-                        processing_time_seconds=time.time() - start_time
+                        status_code=0,
+                        processing_time=time.time() - start_time
                     )
             
             # Step 4: Delegate to actual scraper with monitoring
             result = await self._execute_with_monitoring(request)
             
             # Step 5: Post-scraping validation
-            if result.is_success and result.content:
+            if result.success and result.content:
                 validated_result = await self._validate_scraped_content(result)
-                if not validated_result.is_success:
+                if not validated_result.success:
                     return validated_result
             
             # Step 6: Log metrics and return result
             processing_time = time.time() - start_time
-            result.processing_time_seconds = processing_time
+            result.processing_time = processing_time
             
             self._logger.info(
                 f"Scraping completed for {request.url}: "
-                f"success={result.is_success}, time={processing_time:.2f}s"
+                f"success={result.success}, time={processing_time:.2f}s"
             )
             
             return result
             
         except URLSecurityError as e:
             self._logger.error(f"Security error during scraping {request.url}: {e}")
-            from src.domain.models import ScrapingStatus
             return ScrapingResult(
+                success=False,
                 content=None,
-                status=ScrapingStatus.BLOCKED,
                 error_message=f"Security validation failed: {e.message}",
-                processing_time_seconds=time.time() - start_time
+                status_code=403,
+                processing_time=time.time() - start_time
             )
         
         except ScrapingTimeoutError as e:
             self._logger.error(f"Timeout during scraping {request.url}: {e}")
-            from src.domain.models import ScrapingStatus
             return ScrapingResult(
+                success=False,
                 content=None,
-                status=ScrapingStatus.TIMEOUT,
                 error_message=f"Request timeout: {e.message}",
-                processing_time_seconds=time.time() - start_time
+                status_code=408,
+                processing_time=time.time() - start_time
             )
         
         except Exception as e:
             self._logger.error(f"Unexpected error during scraping {request.url}: {e}")
-            from src.domain.models import ScrapingStatus
             return ScrapingResult(
+                success=False,
                 content=None,
-                status=ScrapingStatus.FAILED,
                 error_message=f"Scraping failed: {str(e)}",
-                processing_time_seconds=time.time() - start_time
+                status_code=500,
+                processing_time=time.time() - start_time
             )
     
     async def validate_url_accessibility(self, url: str) -> bool:
@@ -167,14 +167,14 @@ class ScrapingProxy(IScrapingProxy):
         await self._security_service.validate_url(request.url)
         
         # Additional request validation
-        if request.timeout_seconds and request.timeout_seconds > 300:  # 5 minutes max
+        if request.timeout and request.timeout > 300:  # 5 minutes max
             raise URLSecurityError(
                 message="Request timeout too large",
-                details={"timeout": request.timeout_seconds, "max_allowed": 300}
+                details={"timeout": request.timeout, "max_allowed": 300}
             )
         
         # Validate user agent
-        if hasattr(request, 'user_agent') and request.user_agent and len(request.user_agent) > 500:
+        if request.user_agent and len(request.user_agent) > 500:
             raise URLSecurityError(
                 message="User agent string too long",
                 details={"length": len(request.user_agent)}
@@ -200,8 +200,8 @@ class ScrapingProxy(IScrapingProxy):
     
     async def _should_perform_preflight(self, request: ScrapingRequest) -> bool:
         """Determine if preflight check should be performed."""
-        # Skip preflight for demo purposes
-        return False
+        # Perform preflight for new domains or on request
+        return True  # Always perform for security
     
     async def _perform_preflight_check(self, request: ScrapingRequest) -> bool:
         """Perform preflight check to validate URL accessibility."""
@@ -244,7 +244,7 @@ class ScrapingProxy(IScrapingProxy):
     async def _execute_with_monitoring(self, request: ScrapingRequest) -> ScrapingResult:
         """Execute scraping with timeout and monitoring."""
         config = self._config_service.get_scraping_config()
-        timeout = request.timeout_seconds or config.timeout
+        timeout = request.timeout or config.timeout
         
         try:
             # Execute with timeout
@@ -270,19 +270,19 @@ class ScrapingProxy(IScrapingProxy):
         
         try:
             # Validate content size
-            content_size = len(content.main_content)
+            content_size = len(content.raw_html)
             if not await self._security_service.validate_response_size(content_size):
-                from src.domain.models import ScrapingStatus
                 return ScrapingResult(
+                    success=False,
                     content=None,
-                    status=ScrapingStatus.CONTENT_TOO_LARGE,
                     error_message="Content size exceeds security limits",
-                    processing_time_seconds=result.processing_time_seconds
+                    status_code=413,
+                    processing_time=result.processing_time
                 )
             
             # Validate final URL (after redirects)
-            if content.url_info.url != result.content.url_info.url:
-                await self._security_service.validate_url(content.url_info.url)
+            if content.url != result.content.url:
+                await self._security_service.validate_url(content.url)
             
             # Additional content validation could be added here
             # (malware scanning, content filtering, etc.)
@@ -290,20 +290,20 @@ class ScrapingProxy(IScrapingProxy):
             return result
             
         except URLSecurityError as e:
-            from src.domain.models import ScrapingStatus
             return ScrapingResult(
+                success=False,
                 content=None,
-                status=ScrapingStatus.BLOCKED,
                 error_message=f"Content validation failed: {e.message}",
-                processing_time_seconds=result.processing_time_seconds
+                status_code=403,
+                processing_time=result.processing_time
             )
         except Exception as e:
-            from src.domain.models import ScrapingStatus
             return ScrapingResult(
+                success=False,
                 content=None,
-                status=ScrapingStatus.FAILED,
                 error_message=f"Content validation error: {str(e)}",
-                processing_time_seconds=result.processing_time_seconds
+                status_code=500,
+                processing_time=result.processing_time
             )
     
     def get_security_report(self, url: str) -> Dict[str, Any]:

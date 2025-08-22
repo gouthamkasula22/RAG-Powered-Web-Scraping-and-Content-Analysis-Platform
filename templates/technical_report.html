@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Technical Analysis Report - {{ site_name }}</title>
+    <style>
+        body { font-family: 'Courier New', monospace; line-height: 1.4; margin: 0; padding: 20px; background: #2E2E2E; color: #E0E0E0; }
+        .container { max-width: 1200px; margin: 0 auto; background: #1E1E1E; padding: 30px; border-radius: 8px; border: 1px solid #444; }
+        .header { border-bottom: 2px solid #00BCD4; padding-bottom: 15px; margin-bottom: 25px; }
+        .header h1 { color: #00BCD4; margin: 0; font-size: 2em; }
+        .code-block { background: #000; padding: 15px; border-radius: 4px; border-left: 4px solid #00BCD4; margin: 15px 0; overflow-x: auto; }
+        .technical-section { background: #2A2A2A; padding: 20px; margin: 20px 0; border-radius: 8px; border: 1px solid #444; }
+        .metric-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #444; }
+        .metric-row:last-child { border-bottom: none; }
+        .metric-label { color: #00BCD4; }
+        .metric-value { color: #4CAF50; font-weight: bold; }
+        .data-table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+        .data-table th, .data-table td { border: 1px solid #444; padding: 8px; text-align: left; }
+        .data-table th { background: #333; color: #00BCD4; }
+        .warning { color: #FF9800; }
+        .error { color: #FF5722; }
+        .success { color: #4CAF50; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Technical Analysis Report</h1>
+            <div>{{ site_name }} | {{ url }}</div>
+            <div>Generated: {{ format_timestamp(analysis_timestamp) }}</div>
+        </div>
+
+        <div class="technical-section">
+            <h3>Performance Metrics</h3>
+            {% for dimension, score in dimension_scores.items() %}
+            <div class="metric-row">
+                <span class="metric-label">{{ dimension.replace('_', ' ').upper() }}:</span>
+                <span class="metric-value">{{ format_score(score) }}</span>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="technical-section">
+            <h3>Technical Details</h3>
+            <div class="code-block">
+{{ technical_details | tojson(indent=2) }}
+            </div>
+        </div>
+
+        <div class="technical-section">
+            <h3>Analysis Data</h3>
+            <div class="code-block">
+Report ID: {{ metadata.report_id }}
+Generator Version: {{ metadata.generator_version }}
+Generation Time: {{ metadata.generation_time_ms }}ms
+Template: {{ metadata.template_used }}
+Format: {{ metadata.format_type }}
+            </div>
+        </div>
+
+        {% if improvement_roadmap %}
+        <div class="technical-section">
+            <h3>Implementation Roadmap</h3>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Priority</th>
+                        <th>Task</th>
+                        <th>Effort</th>
+                        <th>Impact</th>
+                        <th>Timeline</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in improvement_roadmap %}
+                    <tr>
+                        <td class="{{ 'error' if item.priority == 'critical' else 'warning' if item.priority == 'high' else 'success' }}">
+                            {{ item.priority.upper() }}
+                        </td>
+                        <td>{{ item.title }}</td>
+                        <td>{{ item.effort_level.upper() }}</td>
+                        <td>{{ item.expected_impact.upper() }}</td>
+                        <td>{{ item.timeline_weeks }}w</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
+        <div class="technical-section">
+            <h3>Raw Data Export</h3>
+            <div class="code-block">
+# Analysis Results Export
+# Generated: {{ format_timestamp(metadata.generated_at) }}
+# 
+# Overall Score: {{ overall_score }}/10
+# Dimensions Analyzed: {{ dimension_scores.keys() | list | length }}
+# Recommendations: {{ recommendations | length }}
+# 
+# END REPORT
+            </div>
+        </div>
+    </div>
+</body>
+</html>
