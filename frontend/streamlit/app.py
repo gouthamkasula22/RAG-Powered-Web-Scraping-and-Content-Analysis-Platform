@@ -24,6 +24,7 @@ try:
     from components.progress_tracker import AnalysisProgressTracker, BackgroundTaskManager
     from components.report_navigator import ReportNavigator, ReportComparison
     from components.history_manager import AnalysisHistoryManager
+    from components.bulk_analyzer import BulkAnalyzer
     from utils.responsive_layout import ResponsiveLayout, SessionStateManager
 except ImportError as e:
     st.error(f"Failed to import components: {e}")
@@ -33,6 +34,7 @@ except ImportError as e:
 responsive_layout = ResponsiveLayout()
 session_manager = SessionStateManager()
 history_manager = AnalysisHistoryManager()
+bulk_analyzer = BulkAnalyzer()
 
 # Configure page
 st.set_page_config(
@@ -697,7 +699,7 @@ def main():
     # Create page navigation
     page = st.selectbox(
         "Navigation",
-        options=["Analysis", "History", "Comparison"],
+        options=["Analysis", "Bulk Analysis", "History", "Comparison"],
         index=0,
         key="main_navigation"
     )
@@ -706,6 +708,10 @@ def main():
         # Main analysis interface
         analysis_type, quality_preference, max_cost = render_sidebar()
         render_main_interface(analysis_type, quality_preference, max_cost)
+    
+    elif page == "Bulk Analysis":
+        # Bulk analysis interface
+        bulk_analyzer.create_bulk_interface()
     
     elif page == "History":
         # Enhanced history interface
