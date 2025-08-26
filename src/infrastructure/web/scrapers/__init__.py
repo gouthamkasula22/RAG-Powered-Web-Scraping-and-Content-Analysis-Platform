@@ -384,6 +384,26 @@ class BeautifulSoupExtractor(IContentExtractor):
 
 
 class WebScraper(IWebScraper):
+    async def crawl(self, start_url: str, max_depth: int = 2, max_pages: int = 20) -> List[ScrapingResult]:
+        """Recursively crawl child links starting from start_url."""
+        visited = set()
+        results = []
+        queue = [(start_url, 0)]
+
+        while queue and len(results) < max_pages:
+            url, depth = queue.pop(0)
+            if url in visited or depth > max_depth:
+                continue
+            visited.add(url)
+            req = ScrapingRequest(url=url)
+            result = await self.scrape_content(req)
+            results.append(result)
+            # Only crawl further if successful and content has links
+            if result.success and hasattr(result.content, 'links'):
+                for link in result.content.links:
+                    if link not in visited and len(results) + len(queue) < max_pages:
+                        queue.append((link, depth + 1))
+        return results
     """
     Main web scraper implementation using BeautifulSoup and aiohttp.
     Coordinates HTTP requests and content extraction.

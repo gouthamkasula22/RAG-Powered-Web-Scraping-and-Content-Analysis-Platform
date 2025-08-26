@@ -13,6 +13,44 @@ from pathlib import Path
 import os
 
 class AnalysisHistoryManager:
+    def _ensure_table_exists(self):
+        """Create analysis_history table if it does not exist."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS analysis_history (
+                    id TEXT PRIMARY KEY,
+                    url TEXT,
+                    analysis_type TEXT,
+                    status TEXT,
+                    overall_score REAL,
+                    cost REAL,
+                    created_at TEXT,
+                    executive_summary TEXT,
+                    insights TEXT
+                )
+            ''')
+            conn.commit()
+    def bulk_delete(self, selected_ids: list) -> bool:
+        """Delete analyses with the given IDs from persistent storage (SQLite) and session state."""
+        self.init_database()
+        deleted_count = 0
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                for analysis_id in selected_ids:
+                    cursor.execute("DELETE FROM analyses WHERE id = ?", (analysis_id,))
+                    deleted_count += cursor.rowcount
+                conn.commit()
+        except Exception as e:
+            st.error(f"Failed to delete from database: {e}")
+            return False
+
+        # Remove from session_state.analysis_results
+        if 'analysis_results' in st.session_state:
+            st.session_state.analysis_results = [a for a in st.session_state.analysis_results if a.get('id', getattr(a, 'id', None)) not in selected_ids]
+
+        return deleted_count > 0
     """Enhanced history manager with SQLite persistence and advanced features"""
     
     def __init__(self, db_path: str = "data/analysis_history.db"):
@@ -420,6 +458,28 @@ class AnalysisHistoryManager:
                     # Store selected for detailed view
                     st.session_state.selected_for_detail = selected_analyses
                     st.info("Selected analyses ready for detailed view")
+            # Display details for selected analyses
+            if st.session_state.get('selected_for_detail'):
+                selected_ids = st.session_state.selected_for_detail
+                details = [a for a in analyses if a['id'] in selected_ids]
+                if details:
+                    st.markdown("---")
+                    st.subheader("Selected Analysis Details")
+                    for detail in details:
+                        st.markdown(f"**URL:** {detail['url']}")
+                        st.markdown(f"**Type:** {detail['analysis_type'].replace('_', ' ').title()}")
+                        st.markdown(f"**Status:** {detail['status'].title()}")
+                        st.markdown(f"**Score:** {detail['overall_score']:.1f}" if detail['overall_score'] else "N/A")
+                        st.markdown(f"**Cost:** ${detail['cost']:.4f}" if detail['cost'] else "$0.0000")
+                        st.markdown(f"**Date:** {datetime.fromisoformat(detail['created_at']).strftime('%m/%d/%Y')}")
+                        st.markdown(f"**Time:** {datetime.fromisoformat(detail['created_at']).strftime('%H:%M')}")
+                        if 'executive_summary' in detail and detail['executive_summary']:
+                            st.markdown(f"**Executive Summary:** {detail['executive_summary']}")
+                        if 'insights' in detail and detail['insights']:
+                            st.markdown("**Insights:**")
+                            for k, v in detail['insights'].items():
+                                st.markdown(f"- **{k.replace('_', ' ').title()}:** {v}")
+                        st.markdown("---")
 
 
 # Global history manager instance

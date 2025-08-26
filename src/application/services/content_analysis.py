@@ -39,7 +39,7 @@ class ContentAnalysisService(IContentAnalysisService):
         self.analysis_cache: Dict[str, AnalysisResult] = {}
     
     async def analyze_url(self, url: str, analysis_type: AnalysisType = AnalysisType.COMPREHENSIVE) -> AnalysisResult:
-        """Complete URL analysis pipeline"""
+        """Complete URL analysis pipeline with child link crawling and relevance filtering"""
         analysis_id = str(uuid.uuid4())
         start_time = time.time()
         
@@ -58,33 +58,39 @@ class ContentAnalysisService(IContentAnalysisService):
         try:
             logger.info(f"🚀 Starting analysis for URL: {url}")
             
-            # Step 1: Web Scraping
+            # Step 1: Web Scraping with crawling
             result.status = AnalysisStatus.SCRAPING
+            crawl_results = await self.scraping_service.crawl(url, max_depth=2, max_pages=20)
+            successful_scrapes = [r for r in crawl_results if getattr(r, 'success', False)]
             
-            # Create scraping request
-            from ...domain.models import ScrapingRequest
-            scraping_request = ScrapingRequest(url=url)
-            scraping_result = await self.scraping_service.scrape_content(scraping_request)
-            
-            if not scraping_result.is_success:
+            if not successful_scrapes:
                 result.status = AnalysisStatus.FAILED
-                result.error_message = f"Scraping failed: {scraping_result.error_message}"
+                result.error_message = "Scraping failed for all pages."
                 result.completed_at = datetime.now()
                 result.processing_time = time.time() - start_time
                 return result
             
-            result.scraped_content = scraping_result.content
+            # Get main page content
+            main_content = successful_scrapes[0].content.text_content if hasattr(successful_scrapes[0].content, 'text_content') else ''
+            main_keywords = set(main_content.lower().split())
+            # Filter related pages by keyword overlap
+            related_scrapes = [successful_scrapes[0]]
+            for r in successful_scrapes[1:]:
+                page_content = r.content.text_content if hasattr(r.content, 'text_content') else ''
+                page_keywords = set(page_content.lower().split())
+                overlap = main_keywords.intersection(page_keywords)
+                # Consider related if at least 10 keywords overlap
+                if len(overlap) >= 10:
+                    related_scrapes.append(r)
             
-            # Step 2: Content Analysis
+            # Analyze all related pages
             result.status = AnalysisStatus.ANALYZING
-            analysis_result = await self._perform_llm_analysis(
-                scraping_result.content, 
-                url, 
-                analysis_type
-            )
-            
-            # Step 3: Process and Structure Results
-            await self._process_analysis_results(result, analysis_result)
+            result.scraped_content = [r.content for r in related_scrapes]
+            result.analysis_results = []
+            for r in related_scrapes:
+                analysis_result = await self._perform_llm_analysis(r.content, r.content.url, analysis_type)
+                await self._process_analysis_results(result, analysis_result)
+                result.analysis_results.append(analysis_result)
             
             # Step 4: Finalize
             result.status = AnalysisStatus.COMPLETED
@@ -281,21 +287,25 @@ Please provide a comprehensive analysis focusing on:
     
     def _extract_executive_summary(self, content: str) -> str:
         """Extract executive summary from analysis"""
-        # Look for executive summary section
+        # Look for executive summary section (robust to markdown and plain text)
         summary_patterns = [
-            r'## 🎯 Executive Summary\n(.*?)(?=\n##|$)',
-            r'## Executive Summary\n(.*?)(?=\n##|$)',
-            r'### Executive Summary\n(.*?)(?=\n##|$)',
-            r'## Summary\n(.*?)(?=\n##|$)',
+            r'## ?🎯? ?Executive Summary\s*(.*?)(?=\n##|\n#|$)',
+            r'### ?Executive Summary\s*(.*?)(?=\n##|\n#|$)',
+            r'## ?Summary\s*(.*?)(?=\n##|\n#|$)',
+            r'Executive Summary[:\s]+(.*?)(?=\n|$)',
         ]
-        
         for pattern in summary_patterns:
-            match = re.search(pattern, content, re.DOTALL)
+            match = re.search(pattern, content, re.DOTALL | re.IGNORECASE)
             if match:
-                return match.group(1).strip()
-        
+                summary = match.group(1).strip()
+                # Clean up excessive markdown, whitespace, and newlines
+                summary = re.sub(r'[#*\-=]', '', summary)
+                summary = re.sub(r'\n+', ' ', summary)
+                summary = re.sub(r'\s+', ' ', summary)
+                if len(summary) > 30:
+                    return summary[:500] + "..." if len(summary) > 500 else summary
         # Fallback: take first substantial paragraph
-        paragraphs = [p.strip() for p in content.split('\n\n') if len(p.strip()) > 50]
+        paragraphs = [p.strip() for p in re.split(r'\n\n|\n', content) if len(p.strip()) > 50]
         return paragraphs[0] if paragraphs else "Analysis completed successfully."
     
     def _extract_metrics(self, structured_data: Dict, content: str) -> AnalysisMetrics:

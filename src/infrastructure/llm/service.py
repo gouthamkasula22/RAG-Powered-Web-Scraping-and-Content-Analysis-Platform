@@ -34,8 +34,6 @@ class ProductionLLMService(ILLMService):
         """Initialize with production configuration"""
         self.config = config
         self.providers: Dict[str, ILLMProvider] = {}
-        self._initialize_providers()
-    
     def _initialize_providers(self):
         """Initialize production LLM providers"""
         try:
@@ -52,7 +50,6 @@ class ProductionLLMService(ILLMService):
             # Initialize Claude (premium - paid)
             claude_key = os.getenv("ANTHROPIC_API_KEY")
             if claude_key:
-                from .claude import ClaudeProvider
                 self.providers["claude"] = ClaudeProvider(
                     api_key=claude_key,
                     model_name=os.getenv("CLAUDE_MODEL", "claude-3-haiku-20240307")
@@ -60,18 +57,13 @@ class ProductionLLMService(ILLMService):
                 logger.info("✅ Claude provider initialized (premium tier)")
                 
         except Exception as e:
-            logger.error(f"❌ Failed to initialize LLM providers: {e}")
             raise ConfigurationError(f"LLM provider initialization failed: {e}")
     
     async def analyze_content(self, request: AnalysisRequest) -> LLMResponse:
         """Analyze content using optimal provider based on size and cost"""
-        
-        # Choose optimal provider
         provider = self._select_optimal_provider(request)
-        
         if not provider:
             raise LLMProviderError("No suitable LLM provider available")
-        
         # Create LLM request
         llm_request = LLMRequest(
             prompt=self._create_analysis_prompt(request),
@@ -79,7 +71,6 @@ class ProductionLLMService(ILLMService):
             max_tokens=4096,
             temperature=0.3  # Lower for more consistent analysis
         )
-        
         # Execute with fallback
         return await self._execute_with_fallback(llm_request, request.max_cost)
     
