@@ -230,6 +230,7 @@ Please provide a comprehensive analysis focusing on:
 3. User experience factors
 4. Readability and engagement
 5. Specific actionable recommendations
+6. Begin your response with a concise 'Executive Summary' section (markdown heading '## Executive Summary') that summarizes the most important findings and recommendations.
 """
         return analysis_text
     
@@ -304,9 +305,16 @@ Please provide a comprehensive analysis focusing on:
                 summary = re.sub(r'\s+', ' ', summary)
                 if len(summary) > 30:
                     return summary[:500] + "..." if len(summary) > 500 else summary
-        # Fallback: take first substantial paragraph
+        # Fallback: take first substantial non-header paragraph
         paragraphs = [p.strip() for p in re.split(r'\n\n|\n', content) if len(p.strip()) > 50]
-        return paragraphs[0] if paragraphs else "Analysis completed successfully."
+        for para in paragraphs:
+            # Skip paragraphs that look like headers (all caps, short, or markdown)
+            if re.match(r'^(#|\*|-|=|\s)*[A-Z\s]{10,}$', para):
+                continue
+            if re.match(r'^(COMPREHENSIVE|SUMMARY|ANALYSIS|WEB CONTENT ANALYSIS)$', para, re.IGNORECASE):
+                continue
+            return para
+        return "Analysis completed successfully."
     
     def _extract_metrics(self, structured_data: Dict, content: str) -> AnalysisMetrics:
         """Extract quantified metrics from analysis"""
