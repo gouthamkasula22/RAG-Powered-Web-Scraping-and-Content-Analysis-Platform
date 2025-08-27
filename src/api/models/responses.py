@@ -31,6 +31,9 @@ class AnalysisResponse(BaseModel):
     insights: Optional[Dict[str, List[str]]] = Field(None, description="Analysis insights")
     recommendations: Optional[List[str]] = Field(None, description="Improvement recommendations")
     
+    # Raw scraped content for detailed Q&A
+    scraped_content: Optional[Dict[str, Any]] = Field(None, description="Raw scraped website content")
+    
     # Technical details
     analysis_type: str = Field(..., description="Type of analysis performed")
     processing_time: Optional[float] = Field(None, description="Processing time in seconds")

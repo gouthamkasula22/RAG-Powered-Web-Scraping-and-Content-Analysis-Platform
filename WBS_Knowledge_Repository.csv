@@ -1,0 +1,21 @@
+WBS ID,Task/Feature,Description/Acceptance Criteria,Milestone,Tech Stack
+P3-M1-DATA-01,Design knowledge schema,JSON/SQLite schema for leadership profiles (name, role, bio, contact, photo),1,Python, SQLite, Pydantic
+P3-M1-DATA-02,Implement data collection service,Web scraper for leadership team page, structured extraction, validation,1,Python, BeautifulSoup, Requests
+P3-M1-DATA-03,Build search functionality,Keyword-based search (FTS5), relevance scoring, ranking,1,Python, SQLite FTS5
+P3-M1-DATA-04,Profile browsing interface,UI for browsing profiles by role/department (Streamlit tab/sidebar),1,Python, Streamlit
+P3-M1-DATA-05,Data validation & normalization,Pipeline for cleaning and validating scraped data,1,Python, Pydantic
+P3-M2-AI-01,Scope detection engine,Rule-based function to classify in-scope/out-of-scope queries,2,Python
+P3-M2-AI-02,Context-aware response system,Generate AI responses using stored knowledge,2,Python, OpenAI API or local LLM
+P3-M2-AI-03,Chat interface implementation,Streamlit chat UI (st.chat_input, st.chat_message), profile integration,2,Python, Streamlit
+P3-M2-AI-04,Out-of-scope handling,Graceful fallback responses ("I don’t know"),2,Python
+P3-M2-AI-05,Advanced search,Relevance scoring, handle name/role variations,2,Python, SQLite FTS5
+P3-M3-MGMT-01,Data management interface,Add, update, delete profile functionality (CRUD),3,Python, FastAPI, SQLite
+P3-M3-MGMT-02,Multi-view interface,Tabs/views for Chat, Browse, Data Management, Analytics,3,Python, Streamlit
+P3-M3-MGMT-03,Export/import functionality,Backup/restore knowledge base (JSON export/import, validation),3,Python, JSON, Pydantic
+P3-M3-MGMT-04,Documentation & testing,Comprehensive docs, unit/integration tests,3,Markdown, Pytest
+P3-M3-MGMT-05,Production deployment,Prepare for deployment, security review, code quality review,3,Docker, GitHub Actions, Pytest
+P3-STRETCH-01,Semantic Search,Upgrade to vector-based search (sentence transformers),Stretch,Python, sentence-transformers
+P3-STRETCH-02,RAG Pipeline,Retrieval-Augmented Generation for better answers,Stretch,Python, LangChain, OpenAI API
+P3-STRETCH-03,Auto-Discovery,Scraper enhancement for new profile pages,Stretch,Python, BeautifulSoup, Requests
+P3-STRETCH-04,Data Visualization,Leadership org chart,Stretch,Python, Plotly, Streamlit
+P3-STRETCH-05,Auto-Updates,Scheduled re-scraping,Stretch,Python, APScheduler

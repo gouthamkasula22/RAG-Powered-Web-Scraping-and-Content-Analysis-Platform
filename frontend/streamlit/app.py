@@ -25,6 +25,8 @@ try:
     from components.report_navigator import ReportNavigator, ReportComparison
     from components.history_manager import AnalysisHistoryManager
     from components.bulk_analyzer import BulkAnalyzer
+    from components.rag_knowledge_repository import RAGKnowledgeRepository
+    from components.knowledge_repository import IntelligentKnowledgeRepository
     from utils.responsive_layout import ResponsiveLayout, SessionStateManager
 except ImportError as e:
     st.error(f"Failed to import components: {e}")
@@ -35,6 +37,15 @@ responsive_layout = ResponsiveLayout()
 session_manager = SessionStateManager()
 history_manager = AnalysisHistoryManager()
 bulk_analyzer = BulkAnalyzer()
+
+# Try to use RAG Knowledge Repository, fallback to old one if it fails
+try:
+    knowledge_repository = RAGKnowledgeRepository()
+    st.session_state.using_rag = True
+except Exception as e:
+    st.warning(f"RAG Knowledge Repository not available, using fallback: {e}")
+    knowledge_repository = IntelligentKnowledgeRepository()
+    st.session_state.using_rag = False
 
 # Configure page
 st.set_page_config(
@@ -302,6 +313,7 @@ async def run_analysis(url: str, analysis_type: str, quality_preference: str, ma
                     self.executive_summary = data.get("executive_summary", "")
                     self.metrics = data.get("metrics", {})
                     self.insights = data.get("insights", {})
+                    self.scraped_content = data.get("scraped_content", {})  # Add scraped content
                     self.processing_time = data.get("processing_time", 0.0)
                     self.cost = data.get("cost", 0.0)
                     self.provider_used = data.get("provider_used", "")
@@ -585,9 +597,16 @@ def display_technical_details(result):
             st.write(f"**Analyzed:** {getattr(result, 'analyzed_at', result.created_at).strftime('%Y-%m-%d %H:%M:%S')}")
         elif hasattr(result, 'scraped_content') and result.scraped_content:
             st.markdown("#### Content Details")
-            st.write(f"**Title:** {result.scraped_content.title}")
-            st.write(f"**Word Count:** {result.scraped_content.metrics.word_count:,} words")
-            st.write(f"**Reading Time:** {result.scraped_content.metrics.reading_time_minutes:.1f} minutes")
+            # Handle scraped_content as dictionary
+            if isinstance(result.scraped_content, dict):
+                st.write(f"**Title:** {result.scraped_content.get('title', 'N/A')}")
+                st.write(f"**Word Count:** {result.scraped_content.get('word_count', 0):,} words")
+                st.write(f"**URL:** {result.scraped_content.get('url', 'N/A')}")
+            else:
+                # Handle scraped_content as object (legacy)
+                st.write(f"**Title:** {getattr(result.scraped_content, 'title', 'N/A')}")
+                st.write(f"**Word Count:** {getattr(result.scraped_content.metrics, 'word_count', 0):,} words")
+                st.write(f"**Reading Time:** {getattr(result.scraped_content.metrics, 'reading_time_minutes', 0):.1f} minutes")
             st.write(f"**Analyzed:** {result.created_at.strftime('%Y-%m-%d %H:%M:%S')}")
 
 def render_export_section(result):
@@ -699,7 +718,7 @@ def main():
     # Create page navigation
     page = st.selectbox(
         "Navigation",
-        options=["Analysis", "Bulk Analysis", "History", "Comparison"],
+        options=["Analysis", "Bulk Analysis", "Knowledge Repository", "History", "Comparison"],
         index=0,
         key="main_navigation"
     )
@@ -712,6 +731,31 @@ def main():
     elif page == "Bulk Analysis":
         # Bulk analysis interface
         bulk_analyzer.create_bulk_interface()
+        
+    elif page == "Knowledge Repository":
+        # RAG-based Knowledge Repository interface
+        try:
+            from components.rag_knowledge_repository import RAGKnowledgeRepository
+            
+            # Initialize RAG Knowledge Repository
+            if 'rag_knowledge_repo' not in st.session_state:
+                st.session_state.rag_knowledge_repo = RAGKnowledgeRepository()
+            
+            # Render the RAG interface
+            st.session_state.rag_knowledge_repo.render()
+            
+        except ImportError as e:
+            st.error(f"RAG Knowledge Repository not available: {e}")
+            st.info("Please install required dependencies: pip install sentence-transformers")
+            
+            # Fallback to old knowledge repository
+            knowledge_repository.render_main_interface()
+        except Exception as e:
+            st.error(f"Error initializing RAG Knowledge Repository: {e}")
+            st.info("Falling back to standard Knowledge Repository...")
+            
+            # Fallback to old knowledge repository
+            knowledge_repository.render_main_interface()
     
     elif page == "History":
         # Enhanced history interface

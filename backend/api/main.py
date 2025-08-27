@@ -73,6 +73,15 @@ app.add_middleware(
     allowed_hosts=["localhost", "127.0.0.1", "*.localhost"]
 )
 
+# Include routers
+import sys
+from pathlib import Path
+backend_api_path = Path(__file__).parent
+sys.path.insert(0, str(backend_api_path))
+
+from knowledge_repository.simple_routes import router as knowledge_router
+app.include_router(knowledge_router, prefix="/api", tags=["knowledge-repository"])
+
 # Request/Response Models
 class AnalysisRequest(BaseModel):
     url: HttpUrl
@@ -94,6 +103,7 @@ class AnalysisResponse(BaseModel):
     executive_summary: Optional[str] = None
     metrics: Optional[Dict[str, float]] = None
     insights: Optional[Dict[str, List[str]]] = None
+    scraped_content: Optional[Dict[str, Any]] = None  # Add scraped content field
     processing_time: float = 0.0
     cost: float = 0.0
     provider_used: str = ""
@@ -492,6 +502,23 @@ async def analyze_content(request: AnalysisRequest):
             else:
                 status_value = str(result.status)
         
+        # Include scraped content for knowledge repository
+        scraped_content_dict = None
+        if hasattr(result, 'scraped_content') and result.scraped_content:
+            logger.info(f"Found scraped content for {request.url}")
+            scraped_content = result.scraped_content
+            scraped_content_dict = {
+                "title": getattr(scraped_content, 'title', ''),
+                "main_content": getattr(scraped_content, 'main_content', ''),
+                "meta_description": getattr(scraped_content, 'meta_description', ''),
+                "headings": getattr(scraped_content, 'headings', []),
+                "url": getattr(scraped_content, 'url', str(request.url)),
+                "word_count": getattr(scraped_content.metrics, 'word_count', 0) if hasattr(scraped_content, 'metrics') else 0
+            }
+            logger.info(f"Scraped content main_content length: {len(scraped_content_dict.get('main_content', ''))}")
+        else:
+            logger.warning(f"No scraped content found for {request.url}. Has scraped_content attr: {hasattr(result, 'scraped_content')}, Value: {getattr(result, 'scraped_content', 'NO ATTR')}")
+        
         response = AnalysisResponse(
             analysis_id=getattr(result, 'analysis_id', f"analysis_{hash(str(request.url))}")[:8],
             url=str(request.url),
@@ -499,6 +526,7 @@ async def analyze_content(request: AnalysisRequest):
             executive_summary=getattr(result, 'executive_summary', 'Analysis completed successfully with comprehensive insights.'),
             metrics=metrics_dict,
             insights=insights_dict,
+            scraped_content=scraped_content_dict,
             processing_time=getattr(result, 'processing_time', 1.5),
             cost=getattr(result, 'cost', 0.001),
             provider_used=getattr(result, 'provider_used', 'mock'),
