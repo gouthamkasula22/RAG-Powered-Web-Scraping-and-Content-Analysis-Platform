@@ -1,16 +1,6 @@
 """
 Service Container - Dependency Injection
 WBS 2.4: Service management and dependency injection
-"""
-
-import asyncio
-import logging
-from typing import Optional
-from datetime import datetime
-
-"""
-Service Container - Dependency Injection
-WBS 2.4: Service management and dependency injection
 
 Note: This is a simplified version using only existing backend services.
 For the main application, services are configured in backend/api/main.py

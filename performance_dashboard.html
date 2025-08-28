@@ -1,0 +1,59 @@
+
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Web Content Analyzer - Performance Dashboard</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 20px; }
+            .metric-card { 
+                border: 1px solid #ddd; 
+                border-radius: 8px; 
+                padding: 15px; 
+                margin: 10px 0;
+                background: #f9f9f9;
+            }
+            .metric-value { font-size: 2em; font-weight: bold; color: #007bff; }
+            .metric-label { color: #666; font-size: 0.9em; }
+            .status-good { color: #28a745; }
+            .status-warning { color: #ffc107; }
+            .status-error { color: #dc3545; }
+        </style>
+    </head>
+    <body>
+        <h1>Performance Dashboard</h1>
+        
+        <div class="metric-card">
+            <div class="metric-value status-good" id="avg-response-time">--</div>
+            <div class="metric-label">Average Response Time (ms)</div>
+        </div>
+        
+        <div class="metric-card">
+            <div class="metric-value status-good" id="cache-hit-rate">--</div>
+            <div class="metric-label">Cache Hit Rate (%)</div>
+        </div>
+        
+        <div class="metric-card">
+            <div class="metric-value" id="concurrent-users">--</div>
+            <div class="metric-label">Active Concurrent Operations</div>
+        </div>
+        
+        <div class="metric-card">
+            <div class="metric-value" id="memory-usage">--</div>
+            <div class="metric-label">Memory Usage (MB)</div>
+        </div>
+        
+        <script>
+            // Simulated real-time updates (would connect to actual metrics in production)
+            function updateMetrics() {
+                document.getElementById('avg-response-time').textContent = '245';
+                document.getElementById('cache-hit-rate').textContent = '87.3';
+                document.getElementById('concurrent-users').textContent = '3';
+                document.getElementById('memory-usage').textContent = '156';
+            }
+            
+            updateMetrics();
+            setInterval(updateMetrics, 5000); // Update every 5 seconds
+        </script>
+    </body>
+    </html>
+    

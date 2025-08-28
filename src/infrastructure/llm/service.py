@@ -50,6 +50,7 @@ class ProductionLLMService(ILLMService):
             # Initialize Claude (premium - paid)
             claude_key = os.getenv("ANTHROPIC_API_KEY")
             if claude_key:
+                from .claude import ClaudeProvider
                 self.providers["claude"] = ClaudeProvider(
                     api_key=claude_key,
                     model_name=os.getenv("CLAUDE_MODEL", "claude-3-haiku-20240307")

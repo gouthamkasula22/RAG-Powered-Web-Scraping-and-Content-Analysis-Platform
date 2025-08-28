@@ -3,7 +3,7 @@ Interface for content analysis service
 """
 from abc import ABC, abstractmethod
 from typing import Optional
-from backend.launchbackend.domain.models import AnalysisResult, AnalysisType
+from ....src.domain.models import AnalysisResult, AnalysisType
 
 
 class IContentAnalysisService(ABC):

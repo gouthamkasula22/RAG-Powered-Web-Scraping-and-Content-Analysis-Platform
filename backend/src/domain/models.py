@@ -498,10 +498,18 @@ class AnalysisStatus(Enum):
 class AnalysisType(Enum):
     """Types of analysis supported"""
     COMPREHENSIVE = "comprehensive"
+    BASIC = "basic"
     SEO_FOCUSED = "seo_focused"
     UX_FOCUSED = "ux_focused"
     CONTENT_QUALITY = "content_quality"
     COMPETITIVE = "competitive"
+
+
+class QualityLevel(Enum):
+    """Quality level for analysis operations"""
+    FAST = "fast"
+    BALANCED = "balanced" 
+    HIGH = "high"
 
 
 @dataclass
@@ -578,5 +586,10 @@ class AnalysisResult:
             raise ValueError("Processing time cannot be negative")
         if self.cost < 0:
             raise ValueError("Cost cannot be negative")
+            
+    @property
+    def success(self):
+        """Determine if the analysis was successful"""
+        return self.status == AnalysisStatus.COMPLETED
 
 

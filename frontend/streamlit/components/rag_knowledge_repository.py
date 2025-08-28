@@ -110,8 +110,8 @@ class RAGKnowledgeRepository:
                     # Removed success message to prevent pop-up - providers available
                 else:
                     # Only show warning if no providers available
-                    st.warning("⚠️ LLM service initialized but no providers available")
-                    st.info("💡 **To enable AI responses, set up API keys:**")
+                    st.warning("LLM service initialized but no providers available")
+                    st.info("**To enable AI responses, set up API keys:**")
                     st.code("""
 # For Google Gemini (Free):
 GOOGLE_API_KEY=your_google_gemini_api_key_here
@@ -406,6 +406,30 @@ ANTHROPIC_API_KEY=your_anthropic_claude_api_key_here
                 max-width: 95%;
             }
         }
+        
+        /* Trash icon button styling - specific to delete buttons */
+        div[data-testid="column"]:last-child .stButton > button {
+            background: transparent !important;
+            border: none !important;
+            color: #dc3545 !important;
+            font-size: 18px !important;
+            padding: 4px 8px !important;
+            min-height: 2rem !important;
+            height: 2rem !important;
+            width: 2rem !important;
+            border-radius: 4px !important;
+            transition: all 0.2s !important;
+            opacity: 0.7 !important;
+        }
+        div[data-testid="column"]:last-child .stButton > button:hover {
+            background: rgba(220, 53, 69, 0.1) !important;
+            color: #c82333 !important;
+            opacity: 1.0 !important;
+        }
+        div[data-testid="column"]:last-child .stButton > button:focus {
+            box-shadow: none !important;
+            outline: none !important;
+        }
         </style>
         """, unsafe_allow_html=True)
     
@@ -436,7 +460,7 @@ ANTHROPIC_API_KEY=your_anthropic_claude_api_key_here
         """Render professional empty state"""
         st.markdown("""
         <div class="rag-empty-state">
-            <div class="rag-empty-icon">📚</div>
+            <div class="rag-empty-icon">�</div>
             <h3 style="
                 color: #2c3e50;
                 margin: 0 0 1rem 0;
@@ -510,6 +534,31 @@ ANTHROPIC_API_KEY=your_anthropic_claude_api_key_here
             <div class="rag-card-body">
         """, unsafe_allow_html=True)
         
+        # Website selection for targeted queries
+        if websites:
+            st.markdown("**Search Scope**")
+            website_options = ["All Websites"] + [f"{w['title']} ({w['url']})" for w in websites]
+            selected_scope = st.selectbox(
+                "Choose which websites to search:",
+                options=website_options,
+                key="rag_website_scope",
+                help="Select 'All Websites' for comprehensive search, or choose a specific website for targeted results"
+            )
+            
+            # Store selected website info for filtering
+            if selected_scope == "All Websites":
+                st.session_state.rag_selected_website = None
+                st.info("Searching across all analyzed websites")
+            else:
+                # Find the selected website
+                for website in websites:
+                    if selected_scope.startswith(website['title']):
+                        st.session_state.rag_selected_website = website
+                        st.success(f"Searching within: **{website['title']}**")
+                        break
+            
+            st.markdown("---")
+        
         # Query input
         question = st.chat_input(
             "Ask anything about your analyzed websites...",
@@ -544,9 +593,22 @@ ANTHROPIC_API_KEY=your_anthropic_claude_api_key_here
         
         with col2:
             if st.button("Clear All", use_container_width=True, type="secondary"):
-                if st.button("Confirm Clear", type="secondary", use_container_width=True):
-                    self._clear_all_data()
-                    st.rerun()
+                # Use session state for confirmation
+                st.session_state.show_clear_confirmation = True
+            
+            # Show confirmation dialog
+            if st.session_state.get('show_clear_confirmation', False):
+                st.warning("This will permanently delete all websites and content from the knowledge base.")
+                col2a, col2b = st.columns(2)
+                with col2a:
+                    if st.button("Confirm", type="primary", use_container_width=True):
+                        self._clear_all_data()
+                        st.session_state.show_clear_confirmation = False
+                        st.rerun()
+                with col2b:
+                    if st.button("Cancel", use_container_width=True):
+                        st.session_state.show_clear_confirmation = False
+                        st.rerun()
         
         st.markdown("</div></div>", unsafe_allow_html=True)
         
@@ -563,32 +625,41 @@ ANTHROPIC_API_KEY=your_anthropic_claude_api_key_here
             </div>
         """, unsafe_allow_html=True)
         
-        for website in websites:
-            st.markdown(f"""
-            <div class="rag-website-item">
-                <h4 style="
-                    margin: 0 0 0.5rem 0;
-                    font-size: 0.875rem;
-                    font-weight: 600;
-                    color: #2c3e50;
-                    white-space: nowrap;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                ">{website['title']}</h4>
-                <p style="
-                    margin: 0 0 0.5rem 0;
-                    font-size: 0.75rem;
-                    color: #6c757d;
-                    white-space: nowrap;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                ">{website['url']}</p>
-                <div style="display: flex; gap: 1rem; font-size: 0.75rem; color: #6c757d;">
-                    <span>{website.get('chunk_count', 0)} chunks</span>
-                    <span>{website.get('created_at', 'Unknown')[:10] if website.get('created_at') else 'Unknown'}</span>
+        for i, website in enumerate(websites):
+            col1, col2 = st.columns([10, 1])
+            
+            with col1:
+                st.markdown(f"""
+                <div class="website-info">
+                    <h4 style="
+                        margin: 0 0 0.5rem 0;
+                        font-size: 0.875rem;
+                        font-weight: 600;
+                        color: #2c3e50;
+                        white-space: nowrap;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                    ">{website['title']}</h4>
+                    <p style="
+                        margin: 0 0 0.5rem 0;
+                        font-size: 0.75rem;
+                        color: #6c757d;
+                        white-space: nowrap;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                    ">{website['url']}</p>
+                    <div style="display: flex; gap: 1rem; font-size: 0.75rem; color: #6c757d;">
+                        <span>{website.get('chunk_count', 0)} chunks</span>
+                        <span>{website.get('created_at', 'Unknown')[:10] if website.get('created_at') else 'Unknown'}</span>
+                    </div>
                 </div>
-            </div>
-            """, unsafe_allow_html=True)
+                """, unsafe_allow_html=True)
+            
+            with col2:
+                if st.button("🗑️", key=f"delete_website_{i}", help="Delete website", 
+                           type="secondary", use_container_width=False):
+                    self._delete_website(website['url'])
+                    st.rerun()
         
         st.markdown("</div>", unsafe_allow_html=True)
     
@@ -651,35 +722,55 @@ ANTHROPIC_API_KEY=your_anthropic_claude_api_key_here
             """, unsafe_allow_html=True)
             return
         
-        # Display last 10 messages
-        recent_messages = st.session_state.rag_chat_history[-10:]
+        # Display last 10 messages in reverse order, but keep Q&A pairs together
+        recent_messages = st.session_state.rag_chat_history[-20:]  # Get more to ensure complete pairs
+        
+        # Group messages into Q&A pairs
+        qa_pairs = []
+        temp_pair = []
         
         for message in recent_messages:
-            if message["role"] == "user":
-                # User message - use pure Streamlit components
-                st.markdown("**👤 You:**")
-                st.write(message['content'])
-                st.caption(f"🕒 {message['timestamp']}")
-                
-            else:
-                # Assistant message - use pure Streamlit components, no HTML
-                st.markdown("**🤖 Assistant:**")
-                st.write(message['content'])
-                
-                # Show method used
-                if message.get("method_used"):
-                    st.caption(f"📡 {message['method_used']}")
-                
-                # Display sources separately if available
-                if message.get("sources"):
-                    sources_list = list(set(message["sources"]))  # Remove duplicates
-                    with st.expander("📄 Sources", expanded=False):
-                        for i, source in enumerate(sources_list, 1):
-                            st.write(f"{i}. {source}")
-                
-                # Display timestamp
-                st.caption(f"🕒 {message['timestamp']}")
-                st.markdown("---")  # Separator between messages
+            temp_pair.append(message)
+            if message["role"] == "assistant":
+                # Complete Q&A pair, add to pairs list
+                qa_pairs.append(temp_pair[:])  # Make a copy
+                temp_pair = []
+        
+        # Add any incomplete pair (user message without response)
+        if temp_pair:
+            qa_pairs.append(temp_pair)
+        
+        # Reverse the pairs so latest Q&A appears first
+        qa_pairs.reverse()
+        
+        # Display only the most recent 5 Q&A pairs
+        for pair in qa_pairs[-5:]:
+            for message in pair:
+                if message["role"] == "user":
+                    # User message - use pure Streamlit components
+                    st.markdown("**You:**")
+                    st.write(message['content'])
+                    st.caption(f"{message['timestamp']}")
+                    
+                else:
+                    # Assistant message - use pure Streamlit components, no HTML
+                    st.markdown("**Assistant:**")
+                    st.write(message['content'])
+                    
+                    # Show method used
+                    if message.get("method_used"):
+                        st.caption(f"Method: {message['method_used']}")
+                    
+                    # Display sources separately if available
+                    if message.get("sources"):
+                        sources_list = list(set(message["sources"]))  # Remove duplicates
+                        with st.expander("Sources", expanded=False):
+                            for i, source in enumerate(sources_list, 1):
+                                st.write(f"{i}. {source}")
+                    
+                    # Display timestamp
+                    st.caption(f"{message['timestamp']}")
+                    st.markdown("---")  # Separator between messages
     
     def _retrieve_relevant_chunks(self, question: str, top_k: int = 5) -> List[RetrievalResult]:
         """Retrieve most relevant content chunks for the question"""
@@ -691,16 +782,24 @@ ANTHROPIC_API_KEY=your_anthropic_claude_api_key_here
             # Generate query embedding
             query_embedding = self.embedding_model.encode([question])[0]
             
+            # Check if a specific website is selected
+            website_filter = ""
+            params = []
+            if hasattr(st.session_state, 'rag_selected_website') and st.session_state.rag_selected_website:
+                website_filter = "AND w.url = ?"
+                params.append(st.session_state.rag_selected_website['url'])
+            
             # Retrieve chunks with embeddings from database
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
-                cursor.execute('''
+                query = f'''
                 SELECT c.*, w.title, w.url 
                 FROM content_chunks c 
                 JOIN websites w ON c.website_id = w.id 
-                WHERE c.embedding IS NOT NULL
+                WHERE c.embedding IS NOT NULL {website_filter}
                 ORDER BY c.position
-                ''')
+                '''
+                cursor.execute(query, params)
                 
                 results = []
                 for row in cursor.fetchall():
@@ -757,12 +856,18 @@ ANTHROPIC_API_KEY=your_anthropic_claude_api_key_here
                     search_conditions.append("(c.content LIKE ? OR w.title LIKE ?)")
                     params.extend([f"%{keyword}%", f"%{keyword}%"])
                 
+                # Add website filter if selected
+                website_filter = ""
+                if hasattr(st.session_state, 'rag_selected_website') and st.session_state.rag_selected_website:
+                    website_filter = "AND w.url = ?"
+                    params.append(st.session_state.rag_selected_website['url'])
+                
                 if search_conditions:
                     query = f'''
                     SELECT c.*, w.title, w.url 
                     FROM content_chunks c 
                     JOIN websites w ON c.website_id = w.id 
-                    WHERE {' OR '.join(search_conditions)}
+                    WHERE ({' OR '.join(search_conditions)}) {website_filter}
                     ORDER BY c.position
                     '''
                     
@@ -1416,37 +1521,90 @@ Answer:"""
             return []
     
     def _load_from_session_state(self) -> bool:
-        """Load websites from session state analysis results"""
-        if 'analysis_results' not in st.session_state:
-            return False
-        
+        """Load websites from session state analysis results (both single and bulk)"""
         try:
             count = 0
-            for result in st.session_state.analysis_results:
-                if hasattr(result, 'url') and hasattr(result, 'scraped_content'):
-                    success = self.add_website_from_analysis(result)
-                    if success:
-                        count += 1
+            
+            # Load from single analysis results
+            if 'analysis_results' in st.session_state and st.session_state.analysis_results:
+                for result in st.session_state.analysis_results:
+                    if hasattr(result, 'url') and hasattr(result, 'scraped_content'):
+                        success = self.add_website_from_analysis(result)
+                        if success:
+                            count += 1
+            
+            # Load from bulk analysis results
+            if 'bulk_analysis_results' in st.session_state and st.session_state.bulk_analysis_results:
+                for bulk_batch in st.session_state.bulk_analysis_results:
+                    # Each bulk batch contains multiple analysis results
+                    bulk_results = bulk_batch.get('results', [])
+                    for analysis_result in bulk_results:
+                        # Convert dict to object-like structure if needed
+                        if isinstance(analysis_result, dict):
+                            analysis_result = self._convert_dict_to_analysis_result(analysis_result)
+                        
+                        # Check if it has the required attributes
+                        if hasattr(analysis_result, 'url') and (
+                            hasattr(analysis_result, 'scraped_content') or 
+                            hasattr(analysis_result, 'executive_summary')
+                        ):
+                            success = self.add_website_from_analysis(analysis_result)
+                            if success:
+                                count += 1
             
             if count > 0:
-                st.success(f"✅ Loaded {count} websites into knowledge base")
+                st.success(f"Loaded {count} websites into knowledge base")
                 return True
                 
         except Exception as e:
             st.warning(f"Could not load from analysis results: {e}")
+            import traceback
+            st.error(f"Debug traceback: {traceback.format_exc()}")
         
         return False
     
+    def _convert_dict_to_analysis_result(self, result_dict: Dict) -> Any:
+        """Convert dictionary result to analysis result object"""
+        from types import SimpleNamespace
+        
+        # Create a simple object from the dictionary
+        result = SimpleNamespace()
+        
+        # Set basic attributes
+        result.url = result_dict.get('url', '')
+        result.executive_summary = result_dict.get('executive_summary', '')
+        result.analysis_id = result_dict.get('analysis_id', '')
+        
+        # Handle scraped content
+        scraped_content = result_dict.get('scraped_content', {})
+        if scraped_content:
+            scraped = SimpleNamespace()
+            scraped.title = scraped_content.get('title', '')
+            scraped.main_content = scraped_content.get('main_content', '')
+            scraped.meta_description = scraped_content.get('meta_description', '')
+            result.scraped_content = scraped
+        else:
+            # Create empty scraped content if not available
+            scraped = SimpleNamespace()
+            scraped.title = result_dict.get('title', result.url)
+            scraped.main_content = result.executive_summary
+            scraped.meta_description = ''
+            result.scraped_content = scraped
+        
+        return result
+
     def add_website_from_analysis(self, analysis_result) -> bool:
         """Add a website to the RAG knowledge base from analysis result"""
         try:
             # Extract information from analysis result
             url = analysis_result.url
-            title = getattr(analysis_result.scraped_content, 'title', url)
+            title = getattr(analysis_result.scraped_content, 'title', url) if hasattr(analysis_result, 'scraped_content') else url
             summary = getattr(analysis_result, 'executive_summary', '')
             
-            # Get content
+            # Get content - try multiple sources
             content = ""
+            
+            # Priority 1: Scraped main content
             if hasattr(analysis_result, 'scraped_content'):
                 scraped = analysis_result.scraped_content
                 if hasattr(scraped, 'main_content'):
@@ -1454,8 +1612,31 @@ Answer:"""
                 elif isinstance(scraped, dict):
                     content = scraped.get('main_content', '')
             
-            if not content:
+            # Priority 2: Executive summary as content if no main content
+            if not content and summary:
+                content = summary
+            
+            # Priority 3: Any insights or analysis content
+            if not content and hasattr(analysis_result, 'insights'):
+                insights = analysis_result.insights
+                if hasattr(insights, 'key_findings'):
+                    content = str(insights.key_findings)
+                elif isinstance(insights, dict):
+                    content = str(insights.get('key_findings', ''))
+            
+            # Skip if no content available
+            if not content or len(content.strip()) < 50:  # Minimum content length
                 return False
+            
+            # Clean title
+            if not title or title == url:
+                # Try to extract domain name as title
+                import re
+                domain_match = re.search(r'https?://(?:www\.)?([^/]+)', url)
+                if domain_match:
+                    title = domain_match.group(1).replace('.com', '').replace('.', ' ').title()
+                else:
+                    title = 'Analyzed Website'
             
             # Check if already exists
             website_id = hashlib.md5(url.encode()).hexdigest()
@@ -1570,7 +1751,7 @@ Answer:"""
                 cursor = conn.cursor()
                 cursor.execute('DELETE FROM websites WHERE id = ?', (website_id,))
                 conn.commit()
-                st.success("✅ Website removed from knowledge base")
+                st.success("Website removed from knowledge base")
         except Exception as e:
             st.error(f"Failed to remove website: {e}")
     
@@ -1582,6 +1763,33 @@ Answer:"""
                 cursor.execute('DELETE FROM content_chunks')
                 cursor.execute('DELETE FROM websites')
                 conn.commit()
-                st.success("✅ Knowledge base cleared")
+                st.success("Knowledge base cleared successfully")
         except Exception as e:
             st.error(f"Failed to clear knowledge base: {e}")
+
+    def _delete_website(self, website_url: str):
+        """Delete a specific website and its content from the knowledge base"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Get website ID
+                cursor.execute('SELECT id FROM websites WHERE url = ?', (website_url,))
+                result = cursor.fetchone()
+                
+                if result:
+                    website_id = result[0]
+                    
+                    # Delete content chunks for this website
+                    cursor.execute('DELETE FROM content_chunks WHERE website_id = ?', (website_id,))
+                    
+                    # Delete website record
+                    cursor.execute('DELETE FROM websites WHERE id = ?', (website_id,))
+                    
+                    conn.commit()
+                    st.success(f"Website removed: {website_url}")
+                else:
+                    st.warning("Website not found in database")
+                    
+        except Exception as e:
+            st.error(f"Failed to delete website: {e}")

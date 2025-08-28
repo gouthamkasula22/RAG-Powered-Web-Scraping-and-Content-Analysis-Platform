@@ -497,3 +497,10 @@ class AnalysisType(Enum):
     UX_FOCUSED = "ux_focused"
     CONTENT_QUALITY = "content_quality"
     SECURITY_AUDIT = "security_audit"
+
+
+class QualityLevel(Enum):
+    """Quality level for analysis operations"""
+    FAST = "fast"
+    BALANCED = "balanced" 
+    HIGH = "high"

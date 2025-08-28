@@ -386,9 +386,56 @@ class BulkAnalyzer:
             # Display summary
             self._display_bulk_summary(bulk_data)
             
+            # Offer to add to Knowledge Repository
+            self._offer_knowledge_repository_integration(bulk_data)
+            
         except Exception as e:
             st.error(f"Bulk analysis failed: {e}")
     
+    def _offer_knowledge_repository_integration(self, bulk_data: Dict[str, Any]):
+        """Offer to add bulk analysis results to RAG Knowledge Repository"""
+        
+        # Check if we have successful results
+        results = bulk_data.get("results", [])
+        successful_results = [r for r in results if r.get("status") == "completed"]
+        
+        if not successful_results:
+            return
+        
+        st.info("💡 **Tip**: Your bulk analysis results can be added to the Knowledge Repository for intelligent Q&A!")
+        
+        col1, col2 = st.columns([1, 1])
+        
+        with col1:
+            if st.button("🧠 Add to Knowledge Repository", type="primary", help="Add these results to RAG Knowledge Repository for Q&A"):
+                try:
+                    # Try to import and use RAG Knowledge Repository
+                    from components.rag_knowledge_repository import RAGKnowledgeRepository
+                    
+                    if 'rag_knowledge_repo' not in st.session_state:
+                        st.session_state.rag_knowledge_repo = RAGKnowledgeRepository()
+                    
+                    # Load the results into knowledge base
+                    rag_repo = st.session_state.rag_knowledge_repo
+                    success = rag_repo._load_from_session_state()
+                    
+                    if success:
+                        st.success("✅ Bulk analysis results added to Knowledge Repository!")
+                        st.info("🔍 Visit the **Knowledge Repository** tab to ask questions about these websites.")
+                    else:
+                        st.warning("⚠️ Some results may already be in the knowledge base.")
+                
+                except ImportError:
+                    st.error("❌ RAG Knowledge Repository not available. Please ensure all dependencies are installed.")
+                except Exception as e:
+                    st.error(f"❌ Failed to add to Knowledge Repository: {e}")
+        
+        with col2:
+            st.markdown("**What you can do:**")
+            st.markdown("• Ask questions about analyzed websites")
+            st.markdown("• Compare information across multiple sites")
+            st.markdown("• Get AI-powered insights and answers")
+
     def _display_bulk_summary(self, bulk_data: Dict[str, Any]):
         """Display enhanced bulk analysis summary with executive summaries"""
         

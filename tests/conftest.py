@@ -11,6 +11,10 @@ from datetime import datetime
 backend_src_path = Path(__file__).parent.parent / "backend"
 sys.path.insert(0, str(backend_src_path))
 
+# Add main src to Python path - this is needed for knowledge_repository tests
+src_path = Path(__file__).parent.parent / "src"
+sys.path.insert(0, str(src_path))
+
 from src.domain import URLInfo, ContentMetrics, ContentType, ScrapingStatus
 
 

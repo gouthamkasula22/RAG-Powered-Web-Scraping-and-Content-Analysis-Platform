@@ -47,7 +47,31 @@ class URLValidator(IURLValidator):
     def is_valid_url(self, url: str) -> bool:
         """Check if URL is syntactically valid and follows proper format."""
         try:
-            return self._validate_url_format(url)
+            if not self._validate_url_format(url):
+                return False
+            
+            parsed = urlparse(url)
+            if not self._validate_scheme(parsed.scheme):
+                return False
+                
+            # Check for blocked patterns (localhost, etc.)
+            if parsed.hostname:
+                hostname = parsed.hostname.lower()
+                for pattern in self._blocked_patterns:
+                    if re.match(pattern, hostname):
+                        return False
+                        
+                # Check for private IPs directly in hostname
+                try:
+                    ip = ipaddress.ip_address(hostname)
+                    for network in self._private_networks:
+                        if ip in network:
+                            return False
+                except ValueError:
+                    # Not an IP address, continue with hostname checks
+                    pass
+                    
+            return True
         except Exception:
             return False
     
@@ -233,8 +257,8 @@ class URLValidator(IURLValidator):
             return False
     
     def _validate_scheme(self, scheme: str) -> bool:
-        """Validate URL scheme."""
-        allowed_schemes = {'http', 'https'}
+        """Validate URL scheme - only HTTPS is allowed for security."""
+        allowed_schemes = {'https'}
         return scheme.lower() in allowed_schemes
     
     def _validate_port(self, port: Optional[int]) -> bool:
