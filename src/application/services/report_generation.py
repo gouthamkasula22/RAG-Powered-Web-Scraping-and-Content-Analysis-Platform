@@ -98,7 +98,7 @@ class ReportGenerationService(IReportGenerator):
         options = options or {}
         
         try:
-            logger.info(f"Generating {template.value} report for {analysis_result.url} in {format_type.value} format")
+            logger.info("Generating %s report for %s in %s format", template.value, analysis_result.url, format_type.value)
             
             # Check cache first
             if options.get('use_cache', True):
@@ -107,7 +107,7 @@ class ReportGenerationService(IReportGenerator):
                 )
                 if cached_report:
                     self.generation_stats['cache_hits'] += 1
-                    logger.info(f"Returning cached report for {analysis_result.analysis_id}")
+                    logger.info("Returning cached report for %s", analysis_result.analysis_id)
                     return cached_report
             
             # Create structured report data
@@ -149,11 +149,11 @@ class ReportGenerationService(IReportGenerator):
             # Update statistics
             self._update_generation_stats(generation_time, format_type)
             
-            logger.info(f"Report generated successfully in {generation_time:.2f}ms")
+            logger.info("Report generated successfully in %.2fms", generation_time)
             return final_report
             
         except Exception as e:
-            logger.error(f"Report generation failed: {e}")
+            logger.error("Report generation failed: %s", e)
             raise ReportGenerationError(f"Failed to generate report: {e}")
     
     async def generate_comparative_report(
@@ -169,7 +169,7 @@ class ReportGenerationService(IReportGenerator):
         options = options or {}
         
         try:
-            logger.info(f"Generating comparative report for {len(analysis_results)} websites")
+            logger.info("Generating comparative report for %s websites", len(analysis_results))
             
             if len(analysis_results) < 2:
                 raise ValueError("Comparative analysis requires at least 2 websites")
@@ -203,11 +203,11 @@ class ReportGenerationService(IReportGenerator):
                 'generated_at': metadata.generated_at.isoformat()
             }
             
-            logger.info(f"Comparative report generated successfully in {generation_time:.2f}ms")
+            logger.info("Comparative report generated successfully in %.2fms", generation_time)
             return final_report
             
         except Exception as e:
-            logger.error(f"Comparative report generation failed: {e}")
+            logger.error("Comparative report generation failed: %s", e)
             raise ReportGenerationError(f"Failed to generate comparative report: {e}")
     
     async def generate_bulk_reports(
@@ -222,7 +222,7 @@ class ReportGenerationService(IReportGenerator):
         start_time = time.time()
         
         try:
-            logger.info(f"Generating bulk reports for {len(analysis_results)} analyses")
+            logger.info("Generating bulk reports for %s analyses", len(analysis_results))
             
             # Determine batch size based on priority
             batch_sizes = {
@@ -241,7 +241,7 @@ class ReportGenerationService(IReportGenerator):
                 batch = analysis_results[i:i + batch_size]
                 batch_number = (i // batch_size) + 1
                 
-                logger.info(f"Processing batch {batch_number}/{total_batches} ({len(batch)} reports)")
+                logger.info("Processing batch %s/%s (%s reports)", batch_number, total_batches, len(batch))
                 
                 # Generate reports concurrently within batch
                 batch_tasks = [
@@ -254,7 +254,7 @@ class ReportGenerationService(IReportGenerator):
                 # Filter successful reports and log errors
                 for j, report in enumerate(batch_reports):
                     if isinstance(report, Exception):
-                        logger.error(f"Failed to generate report for {batch[j].url}: {report}")
+                        logger.error("Failed to generate report for %s: %s", batch[j].url, report)
                     else:
                         reports.append(report)
                 
@@ -264,11 +264,11 @@ class ReportGenerationService(IReportGenerator):
             
             generation_time = (time.time() - start_time) * 1000
             
-            logger.info(f"Bulk report generation completed: {len(reports)}/{len(analysis_results)} successful in {generation_time:.2f}ms")
+            logger.info("Bulk report generation completed: %s/%s successful in %.2fms", len(reports), len(analysis_results), generation_time)
             return reports
             
         except Exception as e:
-            logger.error(f"Bulk report generation failed: {e}")
+            logger.error("Bulk report generation failed: %s", e)
             raise ReportGenerationError(f"Failed to generate bulk reports: {e}")
     
     def validate_template(self, template_content: str, template_type: TemplateEnum) -> bool:
@@ -279,26 +279,26 @@ class ReportGenerationService(IReportGenerator):
             try:
                 Template(template_content)
             except jinja2.TemplateSyntaxError as e:
-                logger.error(f"Template syntax error: {e}")
+                logger.error("Template syntax error: %s", e)
                 return False
             
             # Check required sections based on template type
             schema = TEMPLATE_SCHEMAS.get(template_type.value)
             if not schema:
-                logger.warning(f"No validation schema for template type: {template_type.value}")
+                logger.warning("No validation schema for template type: %s", template_type.value)
                 return True
             
             required_sections = schema.get('required_sections', [])
             for section in required_sections:
                 if f"{{{{{section}}}}}" not in template_content and f"{{{{ {section} }}}}" not in template_content:
-                    logger.error(f"Missing required section in template: {section}")
+                    logger.error("Missing required section in template: %s", section)
                     return False
             
-            logger.info(f"Template validation successful for {template_type.value}")
+            logger.info("Template validation successful for %s", template_type.value)
             return True
             
         except Exception as e:
-            logger.error(f"Template validation failed: {e}")
+            logger.error("Template validation failed: %s", e)
             return False
     
     async def get_cached_report(
@@ -1296,7 +1296,7 @@ class ReportGenerationService(IReportGenerator):
             return rendered
             
         except Exception as e:
-            logger.error(f"Template rendering failed: {e}")
+            logger.error("Template rendering failed: %s", e)
             raise ReportGenerationError(f"Failed to render template {template_name}: {e}")
     
     def _convert_analysis_report_to_dict(self, report: AnalysisReport) -> Dict[str, Any]:

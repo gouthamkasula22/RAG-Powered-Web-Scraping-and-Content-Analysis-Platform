@@ -229,39 +229,6 @@ class BulkReportSummary:
     report_type: ReportType = ReportType.BULK
 
 
-class ReportTemplate:
-    """Base class for report templates"""
-    
-    def __init__(self, template_name: str, template_content: str):
-        self.template_name = template_name
-        self.template_content = template_content
-        self.created_at = datetime.now()
-        self.version = "1.0"
-    
-    def validate_structure(self) -> bool:
-        """Validate template structure"""
-        required_sections = [
-            "executive_summary",
-            "overall_score", 
-            "dimension_scores",
-            "recommendations"
-        ]
-        
-        for section in required_sections:
-            if f"{{{section}}}" not in self.template_content:
-                return False
-        
-        return True
-    
-    def get_required_variables(self) -> List[str]:
-        """Extract required template variables"""
-        import re
-        pattern = r'\{\{(\w+)\}\}'
-        variables = re.findall(pattern, self.template_content)
-        return list(set(variables))
-
-
-@dataclass
 class ReportGenerationRequest:
     """Request for report generation"""
     analysis_ids: List[str]

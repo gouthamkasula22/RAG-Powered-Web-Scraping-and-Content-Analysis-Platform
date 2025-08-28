@@ -3,14 +3,17 @@ Web Scraping Implementation using BeautifulSoup
 Provides content extraction from HTML with robust error handling.
 """
 import asyncio
-import aiohttp
 import logging
 import time
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
-from bs4 import BeautifulSoup, Comment
 from urllib.parse import urljoin, urlparse
+
+import aiohttp
+from bs4 import BeautifulSoup, Comment
+
 from src.domain import ScrapingRequest, ScrapingResult, ScrapedContent, NetworkError
+from src.domain.models import URLInfo, ContentType, ContentMetrics, ScrapingStatus
 from src.application.interfaces.scraping import IWebScraper, IHTTPClient, IContentExtractor
 
 
@@ -57,7 +60,7 @@ class HTTPClient(IHTTPClient):
         session = await self._get_session()
         
         try:
-            self._logger.debug(f"HTTP GET: {url}")
+            self._logger.debug("HTTP GET: %s", url)
             
             custom_timeout = aiohttp.ClientTimeout(total=timeout)
             
@@ -210,18 +213,25 @@ class BeautifulSoupExtractor(IContentExtractor):
             # Extract headings
             headings = self._extract_headings(soup)
             
-            # Create ScrapedContent object
+            # Create URLInfo
+            url_info = URLInfo.from_url(url)
+            
+            # Calculate content metrics
+            metrics = ContentMetrics.calculate(text_content, links, headings)
+            
+            # Create ScrapedContent object with correct parameters
             content = ScrapedContent(
-                url=url,
+                url_info=url_info,
                 title=title,
-                text_content=text_content,
-                raw_html=html,
-                meta_description=meta_description,
-                language=language,
-                links=links,
-                images=images,
                 headings=headings,
-                scraped_at=datetime.now(timezone.utc)
+                main_content=text_content,
+                links=links,
+                meta_description=meta_description,
+                meta_keywords=[],  # Extract keywords if needed
+                content_type=ContentType.UNKNOWN,  # Could be determined by content analysis
+                metrics=metrics,
+                scraped_at=datetime.now(timezone.utc),
+                status=ScrapingStatus.SUCCESS
             )
             
             self._logger.debug(f"Content extraction completed: title='{title[:50]}...', text_length={len(text_content)}")
@@ -384,6 +394,11 @@ class BeautifulSoupExtractor(IContentExtractor):
 
 
 class WebScraper(IWebScraper):
+    """
+    Main web scraper implementation that orchestrates HTTP client and content extraction.
+    Provides high-level scraping capabilities with proper error handling.
+    """
+    
     async def crawl(self, start_url: str, max_depth: int = 2, max_pages: int = 20) -> List[ScrapingResult]:
         """Recursively crawl child links starting from start_url."""
         visited = set()
@@ -404,12 +419,8 @@ class WebScraper(IWebScraper):
                     if link not in visited and len(results) + len(queue) < max_pages:
                         queue.append((link, depth + 1))
         return results
-    """
-    Main web scraper implementation using BeautifulSoup and aiohttp.
-    Coordinates HTTP requests and content extraction.
-    """
     
-    def __init__(self, http_client: IHTTPClient, content_extractor: IContentExtractor):
+    def __init__(self, http_client: IHTTPClient = None, content_extractor: IContentExtractor = None):
         self._http_client = http_client
         self._content_extractor = content_extractor
         self._logger = logging.getLogger(__name__)
@@ -449,11 +460,10 @@ class WebScraper(IWebScraper):
             # Check response status
             if response['status_code'] >= 400:
                 return ScrapingResult(
-                    success=False,
                     content=None,
+                    status=ScrapingStatus.FAILED,
                     error_message=f"HTTP error: {response['status_code']}",
-                    status_code=response['status_code'],
-                    processing_time=time.time() - start_time
+                    processing_time_seconds=time.time() - start_time
                 )
             
             # Extract content
@@ -462,22 +472,20 @@ class WebScraper(IWebScraper):
             
             if not self._content_extractor.can_extract(html, final_url):
                 return ScrapingResult(
-                    success=False,
                     content=None,
+                    status=ScrapingStatus.FAILED,
                     error_message="Content type not supported for extraction",
-                    status_code=response['status_code'],
-                    processing_time=time.time() - start_time
+                    processing_time_seconds=time.time() - start_time
                 )
             
             content = self._content_extractor.extract_content(html, final_url)
             
             if not content:
                 return ScrapingResult(
-                    success=False,
                     content=None,
+                    status=ScrapingStatus.FAILED,
                     error_message="Failed to extract content from HTML",
-                    status_code=response['status_code'],
-                    processing_time=time.time() - start_time
+                    processing_time_seconds=time.time() - start_time
                 )
             
             # Success
@@ -485,11 +493,10 @@ class WebScraper(IWebScraper):
             self._logger.info(f"Content scraped successfully from {request.url}, processing time: {processing_time:.2f}s")
             
             return ScrapingResult(
-                success=True,
                 content=content,
+                status=ScrapingStatus.SUCCESS,
                 error_message=None,
-                status_code=response['status_code'],
-                processing_time=processing_time
+                processing_time_seconds=processing_time
             )
             
         except NetworkError:
@@ -498,11 +505,10 @@ class WebScraper(IWebScraper):
         except Exception as e:
             self._logger.error(f"Scraping failed for {request.url}: {e}")
             return ScrapingResult(
-                success=False,
                 content=None,
+                status=ScrapingStatus.FAILED,
                 error_message=f"Scraping error: {str(e)}",
-                status_code=0,
-                processing_time=time.time() - start_time
+                processing_time_seconds=time.time() - start_time
             )
     
     def supports_url(self, url: str) -> bool:
