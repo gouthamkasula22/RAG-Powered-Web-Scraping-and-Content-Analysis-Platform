@@ -107,8 +107,8 @@ The platform is built following established software engineering principles:
 
 1. **Clone and Setup**
    ```bash
-   git clone https://github.com/yourusername/web-content-analysis.git
-   cd web-content-analysis
+   git clone https://github.com/gouthamkasula22/RAG-Powered-Web-Scraping-and-Content-Analysis-Platform.git
+   cd RAG-Powered-Web-Scraping-and-Content-Analysis-Platform
    
    # Create virtual environment
    python -m venv .venv
