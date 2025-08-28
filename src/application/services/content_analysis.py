@@ -56,7 +56,7 @@ class ContentAnalysisService(IContentAnalysisService):
         self.analysis_cache[analysis_id] = result
         
         try:
-            logger.info(f"🚀 Starting analysis for URL: {url}")
+            logger.info("🚀 Starting analysis for URL: %s", url)
             
             # Step 1: Web Scraping with crawling
             result.status = AnalysisStatus.SCRAPING
@@ -97,11 +97,11 @@ class ContentAnalysisService(IContentAnalysisService):
             result.completed_at = datetime.now()
             result.processing_time = time.time() - start_time
             
-            logger.info(f"✅ Analysis completed for {url} in {result.processing_time:.2f}s")
+            logger.info("✅ Analysis completed for %s in %.2fs", url, result.processing_time)
             return result
             
         except Exception as e:
-            logger.error(f"❌ Analysis failed for {url}: {e}")
+            logger.error("❌ Analysis failed for %s: %s", url, e)
             result.status = AnalysisStatus.FAILED
             result.error_message = str(e)
             result.completed_at = datetime.now()
@@ -158,11 +158,11 @@ class ContentAnalysisService(IContentAnalysisService):
             result.completed_at = datetime.now()
             result.processing_time = time.time() - start_time
             
-            logger.info(f"✅ Content analysis completed in {result.processing_time:.2f}s")
+            logger.info("✅ Content analysis completed in %.2fs", result.processing_time)
             return result
             
         except Exception as e:
-            logger.error(f"❌ Content analysis failed: {e}")
+            logger.error("❌ Content analysis failed: %s", e)
             result.status = AnalysisStatus.FAILED
             result.error_message = str(e)
             result.completed_at = datetime.now()
@@ -258,7 +258,7 @@ Please provide a comprehensive analysis focusing on:
             result.detailed_analysis = structured_data
             
         except Exception as e:
-            logger.warning(f"⚠️ Failed to extract structured data: {e}")
+            logger.warning("⚠️ Failed to extract structured data: %s", e)
             result.warnings.append(f"Structured data extraction failed: {e}")
             result.executive_summary = self._extract_executive_summary(llm_response.content)
     

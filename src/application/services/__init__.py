@@ -61,15 +61,15 @@ class WebContentAnalysisService:
             ContentError: If content cannot be processed
         """
         try:
-            self._logger.info(f"Starting analysis for URL: {url}")
+            self._logger.info("Starting analysis for URL: %s", url)
             
             # Step 1: Validate URL and check security
             await self._security_service.validate_url(url)
-            self._logger.debug(f"URL security validation passed: {url}")
+            self._logger.debug("URL security validation passed: %s", url)
             
             # Step 2: Analyze URL structure
             url_analysis = self._url_analysis_service.analyze_url(url)
-            self._logger.debug(f"URL analysis complete: complexity={url_analysis.complexity_score}")
+            self._logger.debug("URL analysis complete: complexity=%s", url_analysis.complexity_score)
             
             # Step 3: Create scraping request
             scraping_config = self._config_service.get_scraping_config()
@@ -89,13 +89,13 @@ class WebContentAnalysisService:
                 )
             
             content = scraping_result.content
-            self._logger.info(f"Content scraped successfully: {len(content.raw_html)} characters")
+            self._logger.info("Content scraped successfully: %s characters", len(content.raw_html))
             
             # Step 5: Classify and assess content quality
             content_type = self._classification_service.classify_content(content)
             quality_metrics = self._quality_service.assess_quality(content)
             
-            self._logger.debug(f"Content classified as: {content_type}, quality: {quality_metrics.overall_score}")
+            self._logger.debug("Content classified as: %s, quality: %s", content_type, quality_metrics.overall_score)
             
             # Step 6: Perform LLM-based analysis if requested
             llm_analysis = {}
@@ -113,7 +113,7 @@ class WebContentAnalysisService:
                 llm_analysis["keywords"] = await self._llm_service.extract_keywords(
                     content.text_content, max_keywords
                 )
-                self._logger.debug(f"Extracted {len(llm_analysis['keywords'])} keywords")
+                self._logger.debug("Extracted %s keywords", len(llm_analysis['keywords']))
             
             if analysis_options.get("summary", analysis_config.enable_content_summarization):
                 max_length = analysis_options.get("summary_length", analysis_config.summary_max_length)
@@ -158,14 +158,14 @@ class WebContentAnalysisService:
                 content, analysis_results, report_format
             )
             
-            self._logger.info(f"Analysis completed successfully for URL: {url}")
+            self._logger.info("Analysis completed successfully for URL: %s", url)
             return final_report
             
         except (ValidationError, URLSecurityError, NetworkError) as e:
-            self._logger.error(f"Analysis failed for URL {url}: {e}")
+            self._logger.error("Analysis failed for URL %s: %s", url, e)
             raise
         except Exception as e:
-            self._logger.error(f"Unexpected error during analysis of {url}: {e}")
+            self._logger.error("Unexpected error during analysis of %s: %s", url, e)
             raise NetworkError(
                 message="Unexpected error during content analysis",
                 details={"url": url, "error": str(e)}
@@ -182,7 +182,7 @@ class WebContentAnalysisService:
             Dict containing validation results
         """
         try:
-            self._logger.debug(f"Validating URL: {url}")
+            self._logger.debug("Validating URL: %s", url)
             
             # Security validation
             await self._security_service.validate_url(url)
@@ -201,7 +201,7 @@ class WebContentAnalysisService:
             }
             
         except (ValidationError, URLSecurityError) as e:
-            self._logger.warning(f"URL validation failed for {url}: {e}")
+            self._logger.warning("URL validation failed for %s: %s", url, e)
             return {
                 "valid": False,
                 "error": str(e),
@@ -219,7 +219,7 @@ class WebContentAnalysisService:
             Dict containing content preview
         """
         try:
-            self._logger.debug(f"Getting content preview for: {url}")
+            self._logger.debug("Getting content preview for: %s", url)
             
             # Security validation
             await self._security_service.validate_url(url)
@@ -254,11 +254,11 @@ class WebContentAnalysisService:
                 "final_url": content.url
             }
             
-            self._logger.debug(f"Content preview generated for: {url}")
+            self._logger.debug("Content preview generated for: %s", url)
             return preview
             
         except (ValidationError, URLSecurityError, NetworkError) as e:
-            self._logger.error(f"Preview failed for URL {url}: {e}")
+            self._logger.error("Preview failed for URL %s: %s", url, e)
             raise
 
 
@@ -294,7 +294,7 @@ class ScrapingOrchestrationService:
         
         for url in urls:
             try:
-                self._logger.debug(f"Batch scraping URL: {url}")
+                self._logger.debug("Batch scraping URL: %s", url)
                 
                 # Validate each URL
                 await self._security_service.validate_url(url)
@@ -317,7 +317,7 @@ class ScrapingOrchestrationService:
                     await asyncio.sleep(scraping_config.delay_between_requests)
                 
             except Exception as e:
-                self._logger.error(f"Batch scraping failed for {url}: {e}")
+                self._logger.error("Batch scraping failed for %s: %s", url, e)
                 results[url] = ScrapingResult(
                     success=False,
                     content=None,
@@ -326,5 +326,5 @@ class ScrapingOrchestrationService:
                     processing_time=0.0
                 )
         
-        self._logger.info(f"Batch scraping completed: {len(results)} URLs processed")
+        self._logger.info("Batch scraping completed: %s URLs processed", len(results))
         return results

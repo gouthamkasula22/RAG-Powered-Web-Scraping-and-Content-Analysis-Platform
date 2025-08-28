@@ -40,10 +40,10 @@ class ServiceContainer:
             self._initialization_time = datetime.utcnow()
             
             elapsed = (self._initialization_time - start_time).total_seconds()
-            logger.info(f"✅ Service container initialized in {elapsed:.2f}s")
+            logger.info("✅ Service container initialized in %.2fs", elapsed)
             
         except Exception as e:
-            logger.error(f"❌ Failed to initialize service container: {e}")
+            logger.error("❌ Failed to initialize service container: %s", e)
             raise
     
     async def _initialize_mock_services(self):
@@ -91,9 +91,9 @@ class ServiceContainer:
             try:
                 if hasattr(service, 'shutdown'):
                     await service.shutdown()
-                logger.debug(f"✅ {service_name} service shut down")
+                logger.debug("✅ %s service shut down", service_name)
             except Exception as e:
-                logger.error(f"❌ Error shutting down {service_name}: {e}")
+                logger.error("❌ Error shutting down %s: %s", service_name, e)
         
         self._services.clear()
         self._initialized = False
@@ -146,48 +146,3 @@ async def shutdown_service_container():
         await _service_container.shutdown()
         _service_container = None
 
-
-class MockStorageService:
-    """Mock storage service for development"""
-    
-    def __init__(self):
-        self._data = {}
-    
-    async def ping(self):
-        """Health check ping"""
-        return True
-    
-    async def get(self, key: str):
-        """Get data by key"""
-        return self._data.get(key)
-    
-    async def set(self, key: str, value):
-        """Set data by key"""
-        self._data[key] = value
-        return True
-    
-    async def delete(self, key: str):
-        """Delete data by key"""
-        return self._data.pop(key, None) is not None
-
-
-# Global service container instance
-_service_container: Optional[ServiceContainer] = None
-
-async def get_service_container() -> ServiceContainer:
-    """Get or create service container instance"""
-    global _service_container
-    
-    if _service_container is None:
-        _service_container = ServiceContainer()
-        await _service_container.initialize()
-    
-    return _service_container
-
-async def shutdown_service_container():
-    """Shutdown global service container"""
-    global _service_container
-    
-    if _service_container is not None:
-        await _service_container.shutdown()
-        _service_container = None
