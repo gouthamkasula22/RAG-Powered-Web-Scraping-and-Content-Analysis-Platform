@@ -55,11 +55,14 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",  # React development
-        "http://localhost:8501",  # Streamlit
+        "http://localhost:8501",  # Streamlit local
         "http://127.0.0.1:3000",
         "http://127.0.0.1:8501",
         "https://localhost:3000",
-        "https://localhost:8501"
+        "https://localhost:8501",
+        # Docker internal network origins
+        "http://frontend:8501",  # Frontend container to backend container
+        "*"  # Allow all origins for Docker internal communication
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
@@ -67,10 +70,19 @@ app.add_middleware(
     expose_headers=["*"]
 )
 
-# Trusted Host Middleware
+# Trusted Host Middleware - Allow Docker internal networks
 app.add_middleware(
     TrustedHostMiddleware,
-    allowed_hosts=["localhost", "127.0.0.1", "*.localhost"]
+    allowed_hosts=[
+        "localhost", 
+        "127.0.0.1", 
+        "*.localhost",
+        "frontend",  # Frontend container hostname
+        "backend",   # Backend container hostname
+        "*.docker.internal",  # Docker internal domains
+        "172.18.0.1", "172.18.0.2", "172.18.0.3", "172.18.0.4", "172.18.0.5",  # Common Docker IPs
+        "10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.4", "10.0.0.5"  # Common Docker IPs
+    ]
 )
 
 # Include routers
@@ -146,7 +158,11 @@ async def startup_event():
         # Check for API keys
         google_key = os.getenv("GOOGLE_API_KEY")
         anthropic_key = os.getenv("ANTHROPIC_API_KEY")
-        has_api_keys = bool(google_key or anthropic_key)
+        
+        # Check if API keys are valid (not placeholder values)
+        valid_google_key = google_key and google_key not in ["your-google-api-key", "your_google_gemini_api_key_here"]
+        valid_anthropic_key = anthropic_key and anthropic_key not in ["your-anthropic-api-key", "your_anthropic_claude_api_key_here"]
+        has_api_keys = bool(valid_google_key or valid_anthropic_key)
         
         logger.info(f"API Keys detected - Google: {bool(google_key)}, Anthropic: {bool(anthropic_key)}")
         

@@ -37,13 +37,22 @@ print(f"Project root: {project_root}")
 print(f"Backend path: {backend_path}")
 print(f"Backend exists: {backend_path.exists()}")
 
-# For embeddings - we'll use a simple approach first
+# For embeddings and vector search
 try:
     from sentence_transformers import SentenceTransformer
     EMBEDDINGS_AVAILABLE = True
 except ImportError:
     EMBEDDINGS_AVAILABLE = False
-    st.warning("sentence-transformers not available. Install with: pip install sentence-transformers")
+    # Store warning to display later, don't call st.warning during import
+
+# For ChromaDB vector database
+try:
+    import chromadb
+    from chromadb.config import Settings
+    CHROMADB_AVAILABLE = True
+except ImportError:
+    CHROMADB_AVAILABLE = False
+    # Store warning to display later, don't call st.warning during import
 
 # For LLM integration
 try:
@@ -75,22 +84,44 @@ class RetrievalResult:
     relevance_score: float
 
 class RAGKnowledgeRepository:
-    """RAG-based Knowledge Repository with vector search and intelligent retrieval"""
+    """RAG-based Knowledge Repository with ChromaDB vector search and intelligent retrieval"""
     
     def __init__(self):
-        self.db_path = "data/rag_knowledge_repository.db"
+        # Use the correct database path where the actual data is stored
+        self.db_path = "/app/data/rag_knowledge_repository.db"
+        self.chroma_path = "/app/data/chroma_db"
         self.embedding_model = None
+        self.chroma_client = None
+        self.chroma_collection = None
         self.chunk_size = 500  # characters per chunk
         self.chunk_overlap = 100  # overlap between chunks
+        
+        # Store initialization messages to display later
+        self.initialization_messages = []
         
         # Initialize embedding model if available
         if EMBEDDINGS_AVAILABLE:
             try:
                 self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
-                # Removed success message to prevent pop-up
+                # Store success message instead of displaying immediately
+                self.initialization_messages.append(("success", "✅ Embedding model loaded successfully"))
             except Exception as e:
-                # Silently handle error - no warning pop-up
+                # Store error message instead of displaying immediately
                 self.embedding_model = None
+                self.initialization_messages.append(("error", f"❌ Failed to load embedding model: {e}"))
+        else:
+            self.initialization_messages.append(("warning", "⚠️ sentence-transformers not available. Install with: pip install sentence-transformers"))
+        
+        # Initialize ChromaDB if available
+        if CHROMADB_AVAILABLE and self.embedding_model:
+            try:
+                self._init_chromadb()
+            except Exception as e:
+                print(f"ChromaDB initialization failed: {e}")
+                self.chroma_client = None
+                self.initialization_messages.append(("error", f"❌ ChromaDB initialization failed: {e}"))
+        elif not CHROMADB_AVAILABLE:
+            self.initialization_messages.append(("warning", "⚠️ ChromaDB not available. Install with: pip install chromadb"))
         
         # Initialize LLM service for intelligent responses
         self.llm_service = None
@@ -107,34 +138,138 @@ class RAGKnowledgeRepository:
                 self.llm_service = ProductionLLMService(config)
                 if self.llm_service.providers:
                     provider_names = list(self.llm_service.providers.keys())
-                    # Removed success message to prevent pop-up - providers available
+                    self.initialization_messages.append(("success", f"✅ LLM service available with providers: {', '.join(provider_names)}"))
                 else:
-                    # Only show warning if no providers available
-                    st.warning("⚠️ LLM service initialized but no providers available")
-                    st.info("💡 **To enable AI responses, set up API keys:**")
-                    st.code("""
-# For Google Gemini (Free):
-GOOGLE_API_KEY=your_google_gemini_api_key_here
-
-# For Anthropic Claude (Premium):
-ANTHROPIC_API_KEY=your_anthropic_claude_api_key_here
-                    """)
-                    st.info("🔧 **Meanwhile, using enhanced rule-based responses**")
+                    # Store messages to display later instead of immediate Streamlit calls
+                    self.initialization_messages.extend([
+                        ("warning", "⚠️ LLM service initialized but no providers available"),
+                        ("info", "💡 **To enable AI responses, set up API keys:**"),
+                        ("code", "# For Google Gemini (Free):\nGOOGLE_API_KEY=your_google_gemini_api_key_here\n\n# For Anthropic Claude (Premium):\nANTHROPIC_API_KEY=your_anthropic_claude_api_key_here"),
+                        ("info", "🔧 **Meanwhile, using enhanced rule-based responses**")
+                    ])
             except Exception as e:
-                st.error(f"Failed to initialize LLM service: {e}")
-                st.info("🔧 **Using enhanced rule-based responses as fallback**")
+                self.initialization_messages.extend([
+                    ("error", f"❌ Failed to initialize LLM service: {e}"),
+                    ("info", "🔧 **Using enhanced rule-based responses as fallback**")
+                ])
         else:
-            st.info("ℹ️ Using rule-based responses (LLM service not available)")
+            self.initialization_messages.append(("info", "ℹ️ Using rule-based responses (LLM service not available)"))
         
         self._init_database()
+        self._migrate_to_chromadb_if_needed()
+    
+    def _init_chromadb(self):
+        """Initialize ChromaDB client and collection"""
+        try:
+            # Create ChromaDB client with persistent storage
+            self.chroma_client = chromadb.PersistentClient(path=self.chroma_path)
+            
+            # Create or get collection for website chunks
+            self.chroma_collection = self.chroma_client.get_or_create_collection(
+                name="website_chunks",
+                metadata={"hnsw:space": "cosine"}  # Use cosine similarity
+            )
+            
+            print(f"✅ ChromaDB initialized successfully at {self.chroma_path}")
+            return True
+            
+        except Exception as e:
+            print(f"❌ ChromaDB initialization failed: {e}")
+            self.chroma_client = None
+            self.chroma_collection = None
+            return False
+    
+    def _migrate_to_chromadb_if_needed(self):
+        """Migrate existing SQLite embeddings to ChromaDB if needed"""
+        if not self.chroma_collection or not self.embedding_model:
+            return
+        
+        try:
+            # Check if ChromaDB is empty but SQLite has embeddings
+            chroma_count = self.chroma_collection.count()
+            
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('SELECT COUNT(*) FROM content_chunks WHERE embedding IS NOT NULL')
+                sqlite_count = cursor.fetchone()[0]
+            
+            if chroma_count == 0 and sqlite_count > 0:
+                print(f"🔄 Migrating {sqlite_count} embeddings from SQLite to ChromaDB...")
+                self._perform_migration()
+                
+        except Exception as e:
+            print(f"Migration check failed: {e}")
+    
+    def _perform_migration(self):
+        """Perform the actual migration from SQLite to ChromaDB"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                SELECT c.id, c.website_id, c.content, c.chunk_type, c.position, 
+                       c.metadata, c.created_at, w.title, w.url
+                FROM content_chunks c
+                JOIN websites w ON c.website_id = w.id
+                WHERE c.embedding IS NOT NULL
+                ORDER BY c.website_id, c.position
+                ''')
+                
+                chunks_data = cursor.fetchall()
+                
+            if not chunks_data:
+                return
+            
+            # Prepare data for ChromaDB batch insert
+            chunk_ids = []
+            documents = []
+            metadatas = []
+            
+            for chunk_data in chunks_data:
+                chunk_id, website_id, content, chunk_type, position, metadata, created_at, title, url = chunk_data
+                
+                chunk_ids.append(chunk_id)
+                documents.append(content)
+                metadatas.append({
+                    "website_id": website_id,
+                    "website_title": title,
+                    "website_url": url,
+                    "chunk_type": chunk_type,
+                    "position": position,
+                    "created_at": created_at,
+                    "metadata": metadata or "{}"
+                })
+            
+            # Generate embeddings for all chunks
+            print("🧠 Generating embeddings for migration...")
+            embeddings = self.embedding_model.encode(documents)
+            
+            # Batch insert into ChromaDB
+            self.chroma_collection.add(
+                ids=chunk_ids,
+                documents=documents,
+                metadatas=metadatas,
+                embeddings=embeddings.tolist()
+            )
+            
+            print(f"✅ Successfully migrated {len(chunk_ids)} chunks to ChromaDB")
+            
+            # Remove embeddings from SQLite to save space (keep the chunks for fallback)
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('UPDATE content_chunks SET embedding = NULL')
+                conn.commit()
+            
+        except Exception as e:
+            print(f"❌ Migration failed: {e}")
+            raise
     
     def _init_database(self):
-        """Initialize the RAG database with vector storage"""
+        """Initialize the SQLite database for website metadata (ChromaDB handles vectors)"""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 
-                # Websites table
+                # Websites table (unchanged)
                 cursor.execute('''
                 CREATE TABLE IF NOT EXISTS websites (
                     id TEXT PRIMARY KEY,
@@ -148,7 +283,7 @@ ANTHROPIC_API_KEY=your_anthropic_claude_api_key_here
                 )
                 ''')
                 
-                # Content chunks table with vector storage
+                # Content chunks table (no embedding column - ChromaDB handles vectors)
                 cursor.execute('''
                 CREATE TABLE IF NOT EXISTS content_chunks (
                     id TEXT PRIMARY KEY,
@@ -156,7 +291,7 @@ ANTHROPIC_API_KEY=your_anthropic_claude_api_key_here
                     content TEXT NOT NULL,
                     chunk_type TEXT DEFAULT 'paragraph',
                     position INTEGER NOT NULL,
-                    embedding BLOB,
+                    embedding BLOB,  -- Kept for migration compatibility
                     metadata TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (website_id) REFERENCES websites (id) ON DELETE CASCADE
@@ -171,10 +306,38 @@ ANTHROPIC_API_KEY=your_anthropic_claude_api_key_here
                 conn.commit()
                 
         except Exception as e:
-            st.error(f"Database initialization failed: {e}")
+            # Store error message instead of immediate Streamlit display
+            self.initialization_messages.append(("error", f"❌ Database initialization failed: {e}"))
     
+    def _display_initialization_messages(self):
+        """Display any initialization messages that were stored during __init__"""
+        if not hasattr(self, 'initialization_messages'):
+            return
+            
+        # Only show messages if not already shown (prevent popup on every navigation)
+        if hasattr(st.session_state, 'rag_repo_initialized') and st.session_state.rag_repo_initialized:
+            return
+        
+        for message_type, message in self.initialization_messages:
+            if message_type == "success":
+                st.success(message)
+            elif message_type == "error":
+                st.error(message)
+            elif message_type == "warning":
+                st.warning(message)
+            elif message_type == "info":
+                st.info(message)
+            elif message_type == "code":
+                st.code(message)
+        
+        # Clear messages after displaying so they don't show again
+        self.initialization_messages = []
+
     def render(self):
         """Render the professional RAG Knowledge Repository interface"""
+        
+        # Display any initialization messages first
+        self._display_initialization_messages()
         
         # Inject professional CSS
         self._inject_professional_css()
@@ -192,6 +355,43 @@ ANTHROPIC_API_KEY=your_anthropic_claude_api_key_here
         
         # Status and statistics bar
         self._render_status_bar(websites)
+        
+        # Chat input at top level (outside any containers) for proper functionality
+        question = st.chat_input(
+            placeholder="Ask anything about your analyzed websites...",
+            key="rag_chat_input"
+        )
+        
+        # Handle query submission (chat_input automatically clears on submit)
+        if question and question.strip():
+            # Get selected websites for the query based on multiselect widget
+            if "website_dropdown_select" in st.session_state and st.session_state.website_dropdown_select:
+                selected_options = st.session_state.website_dropdown_select
+                
+                if "All websites" in selected_options:
+                    selected_websites = websites
+                    st.info("🌐 Querying **all websites**")
+                else:
+                    # Get website titles
+                    website_titles = [f"{website['title'][:60]}..." if len(website['title']) > 60 else website['title'] 
+                                     for website in websites]
+                    dropdown_options = ["All websites"] + website_titles
+                    
+                    # Get indices of selected websites (subtract 1 because "All websites" is at index 0)
+                    selected_indices = []
+                    for option in selected_options:
+                        if option in dropdown_options and option != "All websites":
+                            idx = dropdown_options.index(option) - 1
+                            if 0 <= idx < len(websites):
+                                selected_indices.append(idx)
+                    
+                    selected_websites = [websites[i] for i in selected_indices] if selected_indices else websites
+                    st.info(f"🎯 Querying **{len(selected_websites)} selected website(s)**: {', '.join([w['title'][:30] + '...' if len(w['title']) > 30 else w['title'] for w in selected_websites])}")
+            else:
+                selected_websites = websites
+                st.info("🌐 Querying **all websites** (no selection found)")
+            
+            self._handle_rag_query(question, selected_websites)
         
         if not websites:
             self._render_empty_state()
@@ -414,8 +614,16 @@ ANTHROPIC_API_KEY=your_anthropic_claude_api_key_here
         """, unsafe_allow_html=True)
     
     def _render_status_bar(self, websites: List[Dict]):
-        """Render professional status and statistics bar"""
+        """Render professional status and statistics bar with ChromaDB info"""
         total_chunks = sum(w.get('chunk_count', 0) for w in websites)
+        
+        # Check ChromaDB status
+        chroma_count = 0
+        if self.chroma_collection:
+            try:
+                chroma_count = self.chroma_collection.count()
+            except Exception:
+                chroma_count = 0
         
         st.markdown(f"""
         <div class="rag-status-bar">
@@ -428,7 +636,13 @@ ANTHROPIC_API_KEY=your_anthropic_claude_api_key_here
                 <div class="rag-stat-value">{total_chunks:,}</div>
             </div>
             <div class="rag-stat">
-                <span class="rag-stat-label">EMBEDDINGS STATUS</span>
+                <span class="rag-stat-label">VECTOR DATABASE</span>
+                <div class="rag-stat-value" style="color: {'#28a745' if self.chroma_collection else '#dc3545'};">
+                    {'CHROMADB' if self.chroma_collection else 'SQLITE'} ({chroma_count:,} vectors)
+                </div>
+            </div>
+            <div class="rag-stat">
+                <span class="rag-stat-label">EMBEDDINGS</span>
                 <div class="rag-stat-value" style="color: {'#28a745' if self.embedding_model else '#dc3545'};">
                     {'ACTIVE' if self.embedding_model else 'DISABLED'}
                 </div>
@@ -548,66 +762,6 @@ ANTHROPIC_API_KEY=your_anthropic_claude_api_key_here
         else:
             selected_websites = websites
         
-        # Custom input area with proper positioning
-        st.markdown("""
-        <div style="
-            margin-bottom: 1rem;
-            padding: 0.75rem;
-            background: #f8f9fa;
-            border-radius: 8px;
-            border: 1px solid #e9ecef;
-        ">
-        """, unsafe_allow_html=True)
-        
-        # Use standard columns to create the layout
-        input_col, button_col = st.columns([8, 1])
-        
-        # Text input in the left column
-        with input_col:
-            question = st.text_input(
-                label="Your question",
-                placeholder="Ask anything about your analyzed websites...",
-                key="rag_query_input",
-                label_visibility="collapsed",
-                on_change=lambda: self._on_input_change() if "rag_query_input" in st.session_state else None
-            )
-        
-        # Send button in the right column
-        with button_col:
-            send_button = st.button("➤", key="send_button", type="primary")
-            
-            # Style the button to look like a send icon
-            st.markdown("""
-            <style>
-            /* Style the send button to be more professional */
-            button[kind="primary"] {
-                border-radius: 50%;
-                width: 38px !important;
-                height: 38px !important;
-                min-width: 38px !important;
-                padding: 0 !important;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                font-size: 16px;
-                margin-top: 0px;
-            }
-            </style>
-            """, unsafe_allow_html=True)
-        
-        st.markdown("</div>", unsafe_allow_html=True)
-        
-        # Handle query submission from button click
-        if send_button and question.strip():
-            self._handle_rag_query(question, selected_websites)
-            # Clear input after submission
-            st.session_state.rag_query_input = ""
-            st.rerun()
-        
-        # Handle query submission (both button click and Enter key)
-        if send_button and question.strip():
-            self._handle_rag_query(question, selected_websites)
-        
         # Display chat history
         self._display_professional_chat_history()
         
@@ -698,8 +852,8 @@ ANTHROPIC_API_KEY=your_anthropic_claude_api_key_here
         # Process query with professional loading indicator
         with st.spinner("🧠 Processing with AI..."):
             
-            # Step 1: Retrieve relevant chunks
-            relevant_chunks = self._retrieve_relevant_chunks(question, top_k=5)
+            # Step 1: Retrieve relevant chunks with website filtering
+            relevant_chunks = self._retrieve_relevant_chunks(question, websites, top_k=5)
             
             if not relevant_chunks:
                 response = self._generate_no_results_response(question, websites)
@@ -801,26 +955,102 @@ ANTHROPIC_API_KEY=your_anthropic_claude_api_key_here
                 st.caption(f"🕒 {message['timestamp']}")
                 st.markdown("---")  # Separator between messages
     
-    def _retrieve_relevant_chunks(self, question: str, top_k: int = 5) -> List[RetrievalResult]:
-        """Retrieve most relevant content chunks for the question"""
+    def _retrieve_relevant_chunks(self, question: str, selected_websites: List[Dict], top_k: int = 5) -> List[RetrievalResult]:
+        """Retrieve most relevant content chunks using ChromaDB or SQLite fallback with website filtering"""
         try:
-            if self.embedding_model is None:
-                # Fallback to keyword-based search
-                return self._keyword_based_retrieval(question, top_k)
+            if not self.embedding_model:
+                # Fallback to keyword-based search with website filtering
+                return self._keyword_based_retrieval(question, selected_websites, top_k)
             
+            # Create list of website URLs for filtering
+            selected_urls = [website['url'] for website in selected_websites] if selected_websites else []
+            
+            # Try ChromaDB first (preferred method)
+            if self.chroma_collection:
+                try:
+                    # Query ChromaDB for similar chunks
+                    results = self.chroma_collection.query(
+                        query_texts=[question],
+                        n_results=top_k * 3,  # Get more results to filter by website
+                        include=["documents", "metadatas", "distances"]
+                    )
+                    
+                    retrieval_results = []
+                    
+                    # Process ChromaDB results with website filtering
+                    if results['ids'][0]:  # Check if we got any results
+                        for i, chunk_id in enumerate(results['ids'][0]):
+                            content = results['documents'][0][i]
+                            metadata = results['metadatas'][0][i]
+                            website_url = metadata.get('website_url', '')
+                            
+                            # Filter by selected websites
+                            if selected_urls and website_url not in selected_urls:
+                                continue
+                                
+                            # ChromaDB returns distances, convert to similarity (1 - distance for cosine)
+                            distance = results['distances'][0][i]
+                            similarity_score = 1.0 - distance
+                            
+                            chunk = ContentChunk(
+                                chunk_id=chunk_id,
+                                website_id=metadata.get('website_id', ''),
+                                website_title=metadata.get('website_title', ''),
+                                website_url=metadata.get('website_url', ''),
+                                content=content,
+                                chunk_type=metadata.get('chunk_type', 'paragraph'),
+                                position=metadata.get('position', 0)
+                            )
+                            
+                            retrieval_results.append(RetrievalResult(
+                                chunk=chunk,
+                                similarity_score=float(similarity_score),
+                                relevance_score=float(similarity_score) * self._calculate_content_quality_score(content)
+                            ))
+                    
+                    # Sort by relevance score and return top_k results
+                    retrieval_results.sort(key=lambda x: x.relevance_score, reverse=True)
+                    return retrieval_results[:top_k]
+                    
+                except Exception as e:
+                    print(f"ChromaDB query failed: {e}, falling back to SQLite")
+                    # Fall through to SQLite fallback
+            
+            # SQLite fallback method with website filtering
+            return self._sqlite_retrieval(question, selected_websites, top_k)
+                
+        except Exception as e:
+            st.error(f"Retrieval failed: {e}")
+            return self._keyword_based_retrieval(question, top_k)
+    
+    def _sqlite_retrieval(self, question: str, selected_websites: List[Dict], top_k: int) -> List[RetrievalResult]:
+        """Fallback SQLite-based retrieval with embeddings and website filtering"""
+        try:
             # Generate query embedding
             query_embedding = self.embedding_model.encode([question])[0]
+            
+            # Create website URL filter
+            selected_urls = [website['url'] for website in selected_websites] if selected_websites else []
+            
+            # Build query with website filtering
+            if selected_urls:
+                placeholders = ','.join(['?' for _ in selected_urls])
+                where_clause = f"AND w.url IN ({placeholders})"
+                query_params = selected_urls
+            else:
+                where_clause = ""
+                query_params = []
             
             # Retrieve chunks with embeddings from database
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
-                cursor.execute('''
+                cursor.execute(f'''
                 SELECT c.*, w.title, w.url 
                 FROM content_chunks c 
                 JOIN websites w ON c.website_id = w.id 
-                WHERE c.embedding IS NOT NULL
+                WHERE c.embedding IS NOT NULL {where_clause}
                 ORDER BY c.position
-                ''')
+                ''', query_params)
                 
                 results = []
                 for row in cursor.fetchall():
@@ -857,14 +1087,17 @@ ANTHROPIC_API_KEY=your_anthropic_claude_api_key_here
                 return results[:top_k]
                 
         except Exception as e:
-            st.error(f"Retrieval failed: {e}")
-            return self._keyword_based_retrieval(question, top_k)
+            print(f"SQLite retrieval failed: {e}")
+            return self._keyword_based_retrieval(question, selected_websites, top_k)
     
-    def _keyword_based_retrieval(self, question: str, top_k: int) -> List[RetrievalResult]:
-        """Fallback keyword-based retrieval when embeddings are not available"""
+    def _keyword_based_retrieval(self, question: str, selected_websites: List[Dict], top_k: int) -> List[RetrievalResult]:
+        """Fallback keyword-based retrieval when embeddings are not available with website filtering"""
         try:
             # Extract keywords from question
             keywords = self._extract_keywords(question)
+            
+            # Create website URL filter
+            selected_urls = [website['url'] for website in selected_websites] if selected_websites else []
             
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
@@ -877,12 +1110,24 @@ ANTHROPIC_API_KEY=your_anthropic_claude_api_key_here
                     search_conditions.append("(c.content LIKE ? OR w.title LIKE ?)")
                     params.extend([f"%{keyword}%", f"%{keyword}%"])
                 
+                # Add website filtering
+                website_conditions = []
+                if selected_urls:
+                    for url in selected_urls:
+                        website_conditions.append("w.url = ?")
+                        params.append(url)
+                
                 if search_conditions:
+                    # Build the complete WHERE clause
+                    where_clauses = [f"({' OR '.join(search_conditions)})"]
+                    if website_conditions:
+                        where_clauses.append(f"({' OR '.join(website_conditions)})")
+                    
                     query = f'''
                     SELECT c.*, w.title, w.url 
                     FROM content_chunks c 
                     JOIN websites w ON c.website_id = w.id 
-                    WHERE {' OR '.join(search_conditions)}
+                    WHERE {' AND '.join(where_clauses)}
                     ORDER BY c.position
                     '''
                     
@@ -1558,7 +1803,7 @@ Answer:"""
         return False
     
     def add_website_from_analysis(self, analysis_result) -> bool:
-        """Add a website to the RAG knowledge base from analysis result"""
+        """Add a website to the RAG knowledge base from analysis result with ChromaDB storage"""
         try:
             # Extract information from analysis result
             url = analysis_result.url
@@ -1591,20 +1836,94 @@ Answer:"""
                 if existing and existing[0] == content_hash:
                     return False  # Already up to date
                 
-                # Insert or update website
+                # Insert or update website metadata in SQLite
                 cursor.execute('''
                 INSERT OR REPLACE INTO websites 
                 (id, title, url, summary, content_hash, updated_at) 
                 VALUES (?, ?, ?, ?, ?, ?)
                 ''', (website_id, title, url, summary, content_hash, datetime.now()))
                 
-                # Clear existing chunks
+                # Clear existing chunks from SQLite
                 cursor.execute('DELETE FROM content_chunks WHERE website_id = ?', (website_id,))
                 
-                # Chunk the content
-                chunks = self._chunk_content(content)
+                conn.commit()
+            
+            # Chunk the content
+            chunks = self._chunk_content(content)
+            
+            if not chunks:
+                return False
+            
+            # Store chunks in ChromaDB if available
+            if self.chroma_collection and self.embedding_model:
+                try:
+                    # Remove existing chunks from ChromaDB
+                    try:
+                        # Get existing chunk IDs for this website
+                        existing_results = self.chroma_collection.get(
+                            where={"website_id": website_id}
+                        )
+                        if existing_results['ids']:
+                            self.chroma_collection.delete(ids=existing_results['ids'])
+                    except Exception as e:
+                        print(f"Could not delete existing ChromaDB entries: {e}")
+                    
+                    # Prepare data for ChromaDB batch insert
+                    chunk_ids = []
+                    documents = []
+                    metadatas = []
+                    
+                    for i, chunk_text in enumerate(chunks):
+                        chunk_id = f"{website_id}_{i}"
+                        chunk_ids.append(chunk_id)
+                        documents.append(chunk_text)
+                        metadatas.append({
+                            "website_id": website_id,
+                            "website_title": title,
+                            "website_url": url,
+                            "chunk_type": "paragraph",
+                            "position": i,
+                            "created_at": datetime.now().isoformat()
+                        })
+                    
+                    # Generate embeddings for all chunks at once (more efficient)
+                    embeddings = self.embedding_model.encode(documents)
+                    
+                    # Batch insert into ChromaDB
+                    self.chroma_collection.add(
+                        ids=chunk_ids,
+                        documents=documents,
+                        metadatas=metadatas,
+                        embeddings=embeddings.tolist()
+                    )
+                    
+                    # Update chunk count
+                    with sqlite3.connect(self.db_path) as conn:
+                        cursor = conn.cursor()
+                        cursor.execute('UPDATE websites SET chunk_count = ? WHERE id = ?', (len(chunks), website_id))
+                        conn.commit()
+                    
+                    print(f"✅ Added {len(chunks)} chunks to ChromaDB for {title}")
+                    return True
+                    
+                except Exception as e:
+                    print(f"ChromaDB storage failed: {e}")
+                    # Fall back to SQLite storage
+                    return self._add_chunks_to_sqlite(website_id, chunks)
+            else:
+                # Fall back to SQLite storage
+                return self._add_chunks_to_sqlite(website_id, chunks)
                 
-                # Store chunks
+        except Exception as e:
+            st.error(f"Failed to add website to RAG knowledge base: {e}")
+            return False
+    
+    def _add_chunks_to_sqlite(self, website_id: str, chunks: List[str]) -> bool:
+        """Fallback method to store chunks in SQLite"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
                 for i, chunk_text in enumerate(chunks):
                     chunk_id = f"{website_id}_{i}"
                     
@@ -1615,9 +1934,9 @@ Answer:"""
                             embedding = self.embedding_model.encode([chunk_text])[0]
                             embedding_blob = embedding.astype(np.float32).tobytes()
                         except Exception as e:
-                            st.warning(f"Could not generate embedding for chunk {i}: {e}")
+                            print(f"Could not generate embedding for chunk {i}: {e}")
                     
-                    # Store chunk
+                    # Store chunk in SQLite
                     cursor.execute('''
                     INSERT INTO content_chunks 
                     (id, website_id, content, chunk_type, position, embedding) 
@@ -1626,12 +1945,13 @@ Answer:"""
                 
                 # Update chunk count
                 cursor.execute('UPDATE websites SET chunk_count = ? WHERE id = ?', (len(chunks), website_id))
-                
                 conn.commit()
+                
+                print(f"✅ Stored {len(chunks)} chunks in SQLite (fallback)")
                 return True
                 
         except Exception as e:
-            st.error(f"Failed to add website to RAG knowledge base: {e}")
+            print(f"SQLite fallback storage failed: {e}")
             return False
     
     def _chunk_content(self, content: str) -> List[str]:

@@ -323,17 +323,25 @@ class AnalysisHistoryManager:
             filter_col1, filter_col2, filter_col3 = st.columns(3)
             
             with filter_col1:
-                status_filter = st.selectbox(
+                # Use radio buttons for more reliable filtering
+                status_options = ["All", "completed", "failed", "pending"]
+                status_index = st.radio(
                     "Status",
-                    options=["All", "completed", "failed", "pending"],
+                    options=range(len(status_options)),
+                    format_func=lambda x: status_options[x],
                     key="status_filter"
                 )
+                status_filter = status_options[status_index]
                 
-                analysis_type_filter = st.selectbox(
+                # Use radio buttons for more reliable filtering
+                type_options = ["All", "comprehensive", "seo_focused", "ux_focused", "content_quality"]
+                type_index = st.radio(
                     "Analysis Type",
-                    options=["All", "comprehensive", "seo_focused", "ux_focused", "content_quality"],
+                    options=range(len(type_options)),
+                    format_func=lambda x: type_options[x].replace('_', ' ').title() if x > 0 else type_options[x],
                     key="type_filter"
                 )
+                analysis_type_filter = type_options[type_index]
             
             with filter_col2:
                 date_range = st.date_input(

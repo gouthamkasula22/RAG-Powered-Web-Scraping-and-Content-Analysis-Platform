@@ -70,11 +70,17 @@ class IntelligentKnowledgeRepository:
             self._load_available_websites()
             
             if st.session_state.kr_available_websites:
-                selected_site = st.selectbox(
+                # Use radio buttons for more reliable website selection
+                website_options = ["All Websites"] + [site['title'] for site in st.session_state.kr_available_websites]
+                selected_index = st.radio(
                     "Select Website to Query",
-                    options=["All Websites"] + [site['title'] for site in st.session_state.kr_available_websites],
-                    help="Choose which analyzed website to ask questions about"
+                    options=range(len(website_options)),
+                    format_func=lambda x: website_options[x],
+                    help="Choose which analyzed website to ask questions about",
+                    key="kr_selected_site"
                 )
+                
+                selected_site = website_options[selected_index]
                 
                 # Update selected website in session state
                 if selected_site == "All Websites":
@@ -119,9 +125,10 @@ class IntelligentKnowledgeRepository:
                 st.session_state.kr_selected_website = None
                 st.rerun()
         
-        # Display chat messages
+        # Display chat messages (only historical messages, not the current conversation)
         chat_container = st.container()
         with chat_container:
+            # Display all messages from chat history
             for message in st.session_state.kr_chat_messages:
                 with st.chat_message(message["role"]):
                     st.markdown(message["content"])
@@ -132,28 +139,37 @@ class IntelligentKnowledgeRepository:
         user_question = st.chat_input("Ask a question about your analyzed websites...")
         
         if user_question:
-            # Add user message to chat
-            st.session_state.kr_chat_messages.append({
-                "role": "user", 
-                "content": user_question,
-                "timestamp": datetime.now().isoformat()
-            })
+            # Check if this is a new question (not already in chat history)
+            is_new_question = True
+            if st.session_state.kr_chat_messages and len(st.session_state.kr_chat_messages) > 0:
+                last_message = st.session_state.kr_chat_messages[-1]
+                if (last_message["role"] == "user" and 
+                    last_message["content"] == user_question):
+                    is_new_question = False
             
-            # Process the question and get response
-            with st.chat_message("user"):
-                st.markdown(user_question)
-            
-            with st.chat_message("assistant"):
-                with st.spinner("Thinking..."):
-                    response = self._process_user_question(user_question)
+            if is_new_question:
+                # Add user message to chat
+                st.session_state.kr_chat_messages.append({
+                    "role": "user", 
+                    "content": user_question,
+                    "timestamp": datetime.now().isoformat()
+                })
                 
-                st.markdown(response["content"])
-                if "source" in response:
-                    st.caption(f"Source: {response['source']}")
-            
-            # Add assistant response to chat
-            st.session_state.kr_chat_messages.append(response)
-            st.rerun()
+                # Display user message immediately
+                with st.chat_message("user"):
+                    st.markdown(user_question)
+                
+                # Process the question and get response
+                with st.chat_message("assistant"):
+                    with st.spinner("Thinking..."):
+                        response = self._process_user_question(user_question)
+                    
+                    st.markdown(response["content"])
+                    if "source" in response:
+                        st.caption(f"Source: {response['source']}")
+                
+                # Add assistant response to chat
+                st.session_state.kr_chat_messages.append(response)
     
     def _render_browse_interface(self):
         """Render the browse websites interface"""
@@ -773,9 +789,9 @@ Please provide a direct, helpful answer based on the content above. If the infor
         # Control panel
         col1, col2, col3 = st.columns([2, 1, 1])
         with col1:
-            sort_by = st.selectbox("Sort by", ["Recently Created", "Title A-Z", "Title Z-A"])
+            sort_by = st.selectbox("Sort by", ["Recently Created", "Title A-Z", "Title Z-A"], key="kr_sort_by")
         with col2:
-            entries_per_page = st.selectbox("Show", [10, 25, 50, 100], index=1)
+            entries_per_page = st.selectbox("Show", [10, 25, 50, 100], index=1, key="kr_entries_per_page")
         with col3:
             if st.button("Refresh", type="secondary"):
                 st.rerun()
@@ -869,9 +885,10 @@ Please provide a direct, helpful answer based on the content above. If the infor
             col1, col2 = st.columns(2)
             with col1:
                 category = st.selectbox("Category", 
-                    ["General", "Process", "Policy", "Technical", "FAQ", "Best Practice", "Troubleshooting"])
+                    ["General", "Process", "Policy", "Technical", "FAQ", "Best Practice", "Troubleshooting"],
+                    key="kr_category")
             with col2:
-                priority = st.selectbox("Priority", ["Low", "Medium", "High", "Critical"])
+                priority = st.selectbox("Priority", ["Low", "Medium", "High", "Critical"], key="kr_priority")
             
             content = st.text_area("Content *", 
                 placeholder="Enter the detailed content of this knowledge entry...", 
@@ -915,7 +932,7 @@ Please provide a direct, helpful answer based on the content above. If the infor
         with col1:
             search_query = st.text_input("Search", placeholder="Enter keywords to search...")
         with col2:
-            search_type = st.selectbox("Search in", ["All Fields", "Title Only", "Content Only"])
+            search_type = st.selectbox("Search in", ["All Fields", "Title Only", "Content Only"], key="kr_search_type")
         
         # Filter options
         with st.expander("Advanced Filters"):
@@ -952,7 +969,7 @@ Please provide a direct, helpful answer based on the content above. If the infor
         st.markdown("### Export Knowledge Base")
         col1, col2 = st.columns(2)
         with col1:
-            export_format = st.selectbox("Export Format", ["JSON", "CSV", "Markdown"])
+            export_format = st.selectbox("Export Format", ["JSON", "CSV", "Markdown"], key="kr_export_format")
         with col2:
             if st.button("Export All Entries", type="primary"):
                 self._export_entries(export_format.lower())

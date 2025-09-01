@@ -3,6 +3,15 @@ Enhanced Web Content Analyzer - Streamlit Interface
 WBS 2.4: Professional interface with advanced features and responsive design
 """
 import streamlit as st
+
+# Configure page FIRST, before any other Streamlit commands or imports
+st.set_page_config(
+    page_title="Web Content Analyzer",
+    page_icon="🔍",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 import asyncio
 import time
 import json
@@ -36,7 +45,24 @@ except ImportError as e:
 responsive_layout = ResponsiveLayout()
 session_manager = SessionStateManager()
 history_manager = AnalysisHistoryManager()
-bulk_analyzer = BulkAnalyzer()
+
+# Configure backend URL based on environment
+def get_backend_url():
+    """Get the appropriate backend URL based on the environment"""
+    # Check if we're running in Docker (check for typical Docker environment indicators)
+    import socket
+    try:
+        # Try to resolve the 'backend' hostname - only works in Docker
+        socket.gethostbyname('backend')
+        return "http://backend:8000"
+    except socket.gaierror:
+        # Fallback to localhost for local development
+        return "http://localhost:8000"
+
+BACKEND_URL = get_backend_url()
+
+# Initialize bulk analyzer with the correct backend URL
+bulk_analyzer = BulkAnalyzer(api_base_url=BACKEND_URL)
 
 # Try to use RAG Knowledge Repository, fallback to old one if it fails
 try:
@@ -46,14 +72,6 @@ except Exception as e:
     st.warning(f"RAG Knowledge Repository not available, using fallback: {e}")
     knowledge_repository = IntelligentKnowledgeRepository()
     st.session_state.using_rag = False
-
-# Configure page
-st.set_page_config(
-    page_title="Web Content Analyzer",
-    page_icon="🔍",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
 
 # Inject responsive CSS
 responsive_layout.inject_responsive_css()
@@ -149,7 +167,11 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 def initialize_session_state():
-    """Initialize enhanced session state variables"""
+    """Initialize session state variables without aggressive clearing for radio button navigation"""
+    
+    # Only clear specific problematic keys if they exist and are causing actual errors
+    # Don't do blanket clearing that interferes with radio button navigation
+    
     session_manager.init_base_state()
     
     # Legacy compatibility
@@ -171,27 +193,18 @@ def render_sidebar():
     with st.sidebar:
         st.header("Analysis Configuration")
         
-        # Analysis type
-        analysis_type = st.selectbox(
+        # Analysis type - use radio buttons for reliability
+        analysis_type = st.radio(
             "Analysis Type",
-            options=[
-                ("comprehensive", "Comprehensive Analysis"),
-                ("seo_focused", "SEO Analysis"),
-                ("ux_focused", "UX Analysis"),
-                ("content_quality", "Content Quality")
-            ],
-            format_func=lambda x: x[1]
+            options=["Comprehensive Analysis", "SEO Analysis", "UX Analysis", "Content Quality"],
+            key="analysis_type_selector"
         )
         
-        # Quality preference
-        quality_preference = st.selectbox(
+        # Quality preference - use radio buttons for reliability
+        quality_preference = st.radio(
             "Processing Mode",
-            options=[
-                ("balanced", "Balanced (Free + Premium)"),
-                ("speed", "Fast (Free Only)"),
-                ("premium", "Premium (Best Quality)")
-            ],
-            format_func=lambda x: x[1]
+            options=["Balanced (Free + Premium)", "Fast (Free Only)", "Premium (Best Quality)"],
+            key="quality_preference_selector"
         )
         
         # Cost limit
@@ -246,7 +259,25 @@ def render_main_interface(analysis_type, quality_preference, max_cost):
     
     # Handle analysis
     if analyze_button and url_input:
-        asyncio.run(run_analysis(url_input, analysis_type[0], quality_preference[0], max_cost))
+        # Map display names to backend keys
+        analysis_type_map = {
+            "Comprehensive Analysis": "comprehensive",
+            "SEO Analysis": "seo_focused", 
+            "UX Analysis": "ux_focused",
+            "Content Quality": "content_quality"
+        }
+        
+        quality_preference_map = {
+            "Balanced (Free + Premium)": "balanced",
+            "Fast (Free Only)": "speed",
+            "Premium (Best Quality)": "premium"
+        }
+        
+        # Convert display values to backend keys
+        analysis_type_key = analysis_type_map[analysis_type]
+        quality_preference_key = quality_preference_map[quality_preference]
+        
+        asyncio.run(run_analysis(url_input, analysis_type_key, quality_preference_key, max_cost))
     elif analyze_button and not url_input:
         st.error("Please enter a valid URL")
     
@@ -277,7 +308,7 @@ async def run_analysis(url: str, analysis_type: str, quality_preference: str, ma
         progress_tracker.update_progress(ui_components, 0, 50)
         
         # Prepare API request
-        api_url = "http://localhost:8000/api/analyze"
+        api_url = f"{BACKEND_URL}/api/analyze"
         request_data = {
             "url": url,
             "analysis_type": analysis_type.lower(),
@@ -324,7 +355,7 @@ async def run_analysis(url: str, analysis_type: str, quality_preference: str, ma
             
         except requests.exceptions.RequestException as e:
             st.error(f"Failed to connect to backend API: {e}")
-            st.info("Make sure the backend service is running on http://localhost:8000")
+            st.info(f"Make sure the backend service is running on {BACKEND_URL}")
             return
         except Exception as e:
             st.error(f"Analysis failed: {e}")
@@ -710,97 +741,140 @@ def render_history_section():
     st.dataframe(df, use_container_width=True, hide_index=True)
 
 def main():
-    """Enhanced main application entry point"""
+    """Enhanced main application entry point with comprehensive error handling"""
     
-    initialize_session_state()
-    render_header()
-    
-    # Create page navigation
-    page = st.selectbox(
-        "Navigation",
-        options=["Analysis", "Bulk Analysis", "Knowledge Repository", "History", "Comparison"],
-        index=0,
-        key="main_navigation"
-    )
-    
-    if page == "Analysis":
-        # Main analysis interface
-        analysis_type, quality_preference, max_cost = render_sidebar()
-        render_main_interface(analysis_type, quality_preference, max_cost)
-    
-    elif page == "Bulk Analysis":
-        # Bulk analysis interface
-        bulk_analyzer.create_bulk_interface()
+    try:
+        initialize_session_state()
+        render_header()
         
-    elif page == "Knowledge Repository":
-        # RAG-based Knowledge Repository interface
+        # Create page navigation with radio buttons (more reliable than selectbox)
         try:
-            from components.rag_knowledge_repository import RAGKnowledgeRepository
+            # Set default page if not in session state
+            if 'current_page' not in st.session_state:
+                st.session_state.current_page = "Analysis"
             
-            # Initialize RAG Knowledge Repository
-            if 'rag_knowledge_repo' not in st.session_state:
-                st.session_state.rag_knowledge_repo = RAGKnowledgeRepository()
+            # Get current index for the radio button
+            page_options = ["Analysis", "Bulk Analysis", "Knowledge Repository", "History", "Comparison"]
+            current_index = 0
+            if st.session_state.current_page in page_options:
+                current_index = page_options.index(st.session_state.current_page)
             
-            # Render the RAG interface
-            st.session_state.rag_knowledge_repo.render()
+            # Use callback to handle navigation changes immediately
+            def on_navigation_change():
+                if 'main_navigation' in st.session_state:
+                    st.session_state.current_page = st.session_state.main_navigation
             
-        except ImportError as e:
-            st.error(f"RAG Knowledge Repository not available: {e}")
-            st.info("Please install required dependencies: pip install sentence-transformers")
+            page = st.radio(
+                "Navigation",
+                options=page_options,
+                index=current_index,
+                horizontal=True,
+                key="main_navigation",
+                on_change=on_navigation_change
+            )
             
-            # Fallback to old knowledge repository
-            knowledge_repository.render_main_interface()
+            # Use the session state current_page for routing (more reliable)
+            page = st.session_state.current_page
         except Exception as e:
-            st.error(f"Error initializing RAG Knowledge Repository: {e}")
-            st.info("Falling back to standard Knowledge Repository...")
+            st.error(f"Navigation error: {e}")
+            st.info("Please refresh the page to continue.")
+            # Only clear navigation state if there's an actual error
+            if 'main_navigation' in st.session_state:
+                del st.session_state['main_navigation']
+            st.rerun()
+            return
+        
+        # Page routing with error handling
+        try:
+            if page == "Analysis":
+                # Main analysis interface
+                analysis_type, quality_preference, max_cost = render_sidebar()
+                render_main_interface(analysis_type, quality_preference, max_cost)
             
-            # Fallback to old knowledge repository
-            knowledge_repository.render_main_interface()
-    
-    elif page == "History":
-        # Enhanced history interface
-        history_manager.render_history_interface()
-    
-    elif page == "Comparison":
-        # Report comparison interface
-        
-        # Load all available analyses (both session and database)
-        available_analyses = list(st.session_state.analysis_results)  # Current session analyses
-        
-        # Also load recent analyses from database
-        db_analyses = history_manager.load_analyses(limit=50)
-        
-        # Convert database records to analysis objects for comparison
-        for db_analysis in db_analyses:
-            # Create a simple analysis object from database record
-            class DatabaseAnalysis:
-                def __init__(self, record):
-                    self.analysis_id = record['id']
-                    self.url = record['url']
-                    self.created_at = datetime.fromisoformat(record['created_at']) if record['created_at'] else datetime.now()
-                    self.analysis_type = record['analysis_type']
-                    self.status = record['status']
-                    # Create metrics object
-                    self.metrics = type('Metrics', (), {
-                        'overall_score': record.get('overall_score', 0.0),
-                        'content_quality_score': record.get('content_quality_score', 0.0),
-                        'seo_score': record.get('seo_score', 0.0),
-                        'ux_score': record.get('ux_score', 0.0)
-                    })()
-                    self.executive_summary = record.get('executive_summary', '')
-                    self.cost = record.get('cost', 0.0)
-                    self.processing_time = record.get('processing_time', 0.0)
-                    self.provider_used = record.get('provider_used', '')
+            elif page == "Bulk Analysis":
+                # Bulk analysis interface
+                bulk_analyzer.create_bulk_interface()
+                
+            elif page == "Knowledge Repository":
+                # RAG-based Knowledge Repository interface
+                try:
+                    from components.rag_knowledge_repository import RAGKnowledgeRepository
+                    
+                    # Initialize RAG Knowledge Repository ONCE and cache it
+                    if 'rag_knowledge_repo' not in st.session_state or st.session_state.rag_knowledge_repo is None:
+                        with st.spinner("Initializing Knowledge Repository..."):
+                            st.session_state.rag_knowledge_repo = RAGKnowledgeRepository()
+                            # Mark as initialized to prevent re-showing messages
+                            st.session_state.rag_repo_initialized = True
+                    
+                    # Render the RAG interface (without re-initialization)
+                    st.session_state.rag_knowledge_repo.render()
+                    
+                except ImportError as e:
+                    st.error(f"RAG Knowledge Repository not available: {e}")
+                    st.info("Please install required dependencies: pip install sentence-transformers")
+                    
+                    # Fallback to old knowledge repository
+                    knowledge_repository.render_main_interface()
+                except Exception as e:
+                    st.error(f"Error initializing RAG Knowledge Repository: {e}")
+                    st.info("Falling back to standard Knowledge Repository...")
+                    
+                    # Fallback to old knowledge repository
+                    knowledge_repository.render_main_interface()
             
-            # Only add if not already in session (avoid duplicates)
-            if not any(getattr(a, 'analysis_id', None) == db_analysis['id'] for a in available_analyses):
-                available_analyses.append(DatabaseAnalysis(db_analysis))
+            elif page == "History":
+                # Enhanced history interface
+                history_manager.render_history_interface()
+            
+            elif page == "Comparison":
+                # Report comparison interface
+                
+                # Load all available analyses (both session and database)
+                available_analyses = list(st.session_state.analysis_results)  # Current session analyses
+                
+                # Also load recent analyses from database
+                db_analyses = history_manager.load_analyses(limit=50)
+                
+                # Convert database records to analysis objects for comparison
+                for db_analysis in db_analyses:
+                    # Create a simple analysis object from database record
+                    class DatabaseAnalysis:
+                        def __init__(self, record):
+                            self.analysis_id = record['id']
+                            self.url = record['url']
+                            self.created_at = datetime.fromisoformat(record['created_at']) if record['created_at'] else datetime.now()
+                            self.analysis_type = record['analysis_type']
+                            self.status = record['status']
+                            # Create metrics object
+                            self.metrics = type('Metrics', (), {
+                                'overall_score': record.get('overall_score', 0.0),
+                                'content_quality_score': record.get('content_quality_score', 0.0),
+                                'seo_score': record.get('seo_score', 0.0),
+                                'ux_score': record.get('ux_score', 0.0)
+                            })()
+                            self.executive_summary = record.get('executive_summary', '')
+                            self.cost = record.get('cost', 0.0)
+                            self.processing_time = record.get('processing_time', 0.0)
+                            self.provider_used = record.get('provider_used', '')
+                
+                    # Only add if not already in session (avoid duplicates)
+                    if not any(getattr(a, 'analysis_id', None) == db_analysis['id'] for a in available_analyses):
+                        available_analyses.append(DatabaseAnalysis(db_analysis))
+                
+                if len(available_analyses) >= 2:
+                    report_comparison = ReportComparison()
+                    report_comparison.create_comparison_interface(available_analyses)
+                else:
+                    st.info(f"Need at least 2 analyses for comparison. Found {len(available_analyses)} analyses total (session: {len(st.session_state.analysis_results)}, database: {len(db_analyses)}). Complete some analyses first.")
         
-        if len(available_analyses) >= 2:
-            report_comparison = ReportComparison()
-            report_comparison.create_comparison_interface(available_analyses)
-        else:
-            st.info(f"Need at least 2 analyses for comparison. Found {len(available_analyses)} analyses total (session: {len(st.session_state.analysis_results)}, database: {len(db_analyses)}). Complete some analyses first.")
+        except Exception as e:
+            st.error(f"Error loading page '{page}': {e}")
+            st.info("Please try refreshing the page or contact support if the issue persists.")
+            
+    except Exception as e:
+        st.error(f"Application error: {e}")
+        st.info("Please refresh the page to restart the application.")
 
 if __name__ == "__main__":
     main()

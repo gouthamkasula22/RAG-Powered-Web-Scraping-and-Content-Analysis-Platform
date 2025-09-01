@@ -328,7 +328,7 @@ class SessionStateManager:
             'search_query': '',
             'filters': {},
             'view_mode': 'detailed',
-            'current_page': 'analysis',
+            'current_page': 'Analysis',  # Match radio button option exactly
             'sidebar_collapsed': False,
             'theme_mode': 'light',
             'user_preferences': {

@@ -33,8 +33,19 @@ except ImportError:
 class BulkAnalyzer:
     """Component for bulk URL analysis with real-time progress tracking"""
     
-    def __init__(self, api_base_url: str = "http://localhost:8000"):
-        self.api_base_url = api_base_url
+    def __init__(self, api_base_url: str = None):
+        # Configure backend URL based on environment
+        if api_base_url is None:
+            import socket
+            try:
+                # Try to resolve the 'backend' hostname - only works in Docker
+                socket.gethostbyname('backend')
+                self.api_base_url = "http://backend:8000"
+            except socket.gaierror:
+                # Fallback to localhost for local development
+                self.api_base_url = "http://localhost:8000"
+        else:
+            self.api_base_url = api_base_url
         self.max_urls = 20  # Increased limit - can analyze up to 20 URLs at once
         self.max_parallel = 5  # Maximum parallel processing
         
@@ -230,29 +241,37 @@ class BulkAnalyzer:
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            analysis_type = st.selectbox(
+            # Use radio buttons for more reliable selection
+            analysis_options = [
+                ("comprehensive", "Comprehensive Analysis"),
+                ("seo_focused", "SEO Focused"),
+                ("ux_focused", "UX Focused"),
+                ("content_quality", "Content Quality")
+            ]
+            
+            analysis_index = st.radio(
                 "Analysis Type",
-                [
-                    ("comprehensive", "Comprehensive Analysis"),
-                    ("seo_focused", "SEO Focused"),
-                    ("ux_focused", "UX Focused"),
-                    ("content_quality", "Content Quality")
-                ],
-                format_func=lambda x: x[1],
+                options=range(len(analysis_options)),
+                format_func=lambda x: analysis_options[x][1],
                 key="bulk_analysis_type"
             )
+            analysis_type = analysis_options[analysis_index]
         
         with col2:
-            quality_preference = st.selectbox(
+            # Use radio buttons for more reliable selection
+            quality_options = [
+                ("balanced", "Balanced"),
+                ("speed", "Speed Priority"),
+                ("premium", "Premium Quality")
+            ]
+            
+            quality_index = st.radio(
                 "Quality Preference",
-                [
-                    ("balanced", "Balanced"),
-                    ("speed", "Speed Priority"),
-                    ("premium", "Premium Quality")
-                ],
-                format_func=lambda x: x[1],
+                options=range(len(quality_options)),
+                format_func=lambda x: quality_options[x][1],
                 key="bulk_quality_preference"
             )
+            quality_preference = quality_options[quality_index]
         
         with col3:
             parallel_workers = st.slider(
