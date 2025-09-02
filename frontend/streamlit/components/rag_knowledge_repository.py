@@ -18,6 +18,13 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+# Optional imports for charts
+try:
+    import plotly.graph_objects as go
+    PLOTLY_AVAILABLE = True
+except ImportError:
+    PLOTLY_AVAILABLE = False
+
 # Load environment variables
 from dotenv import load_dotenv
 load_dotenv()
@@ -732,6 +739,53 @@ class RAGKnowledgeRepository:
             <div class="rag-card-body">
         """, unsafe_allow_html=True)
         
+        # Add vector display settings
+        with st.expander("Advanced Settings", expanded=False):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Store in session state to persist across reruns
+                if "show_vectors_default" not in st.session_state:
+                    st.session_state.show_vectors_default = True
+                
+                st.session_state.show_vectors_default = st.checkbox(
+                    "Show Vector Details",
+                    value=st.session_state.show_vectors_default,
+                    help="Display similarity scores and vector information"
+                )
+            
+            with col2:
+                if "top_k_value" not in st.session_state:
+                    st.session_state.top_k_value = 5
+                
+                st.session_state.top_k_value = st.slider(
+                    "Number of Vectors (K)",
+                    min_value=1,
+                    max_value=10,
+                    value=st.session_state.top_k_value,
+                    help="Number of similar content chunks to retrieve"
+                )
+            
+            # Add a test button to demonstrate vector display
+            if st.button("Test Vector Display", help="Add a sample query to test vector display"):
+                self._add_test_vector_display()
+            
+            # Debug information
+            if st.checkbox("Show Debug Info", value=False):
+                st.markdown("**Current Settings:**")
+                st.text(f"Show Vectors: {st.session_state.get('show_vectors_default', False)}")
+                st.text(f"Top K: {st.session_state.get('top_k_value', 5)}")
+                st.text(f"Embedding Model: {'Available' if self.embedding_model else 'Not Available'}")
+                st.text(f"ChromaDB: {'Available' if self.chroma_collection else 'Not Available'}")
+                
+                # Show chat history debug
+                chat_history = st.session_state.get("rag_chat_history", [])
+                st.text(f"Chat Messages: {len(chat_history)}")
+                for i, msg in enumerate(chat_history[-3:]):  # Show last 3
+                    if msg.get("role") == "assistant":
+                        chunks_count = len(msg.get("relevant_chunks", []))
+                        st.text(f"  Message {i}: {chunks_count} chunks, show_vectors: {msg.get('show_vectors', False)}")
+        
         # Website selection with dropdown
         if len(websites) > 1:
             st.markdown("**Select websites to query:**")
@@ -846,6 +900,9 @@ class RAGKnowledgeRepository:
         if "rag_chat_history" not in st.session_state:
             st.session_state.rag_chat_history = []
         
+        # Get top_k value from session state (default to 5)
+        top_k = st.session_state.get("top_k_value", 5)
+        
         # Add user message
         st.session_state.rag_chat_history.append({
             "role": "user",
@@ -854,10 +911,10 @@ class RAGKnowledgeRepository:
         })
         
         # Process query with professional loading indicator
-        with st.spinner("🧠 Processing with AI..."):
+        with st.spinner("Processing with AI..."):
             
-            # Step 1: Retrieve relevant chunks with website filtering
-            relevant_chunks = self._retrieve_relevant_chunks(question, websites, top_k=5)
+            # Step 1: Retrieve relevant chunks with website filtering using configurable top_k
+            relevant_chunks = self._retrieve_relevant_chunks(question, websites, top_k=top_k)
             
             if not relevant_chunks:
                 response = self._generate_no_results_response(question, websites)
@@ -870,14 +927,17 @@ class RAGKnowledgeRepository:
                 method_used = result["method"]
                 sources = [f"{chunk.chunk.website_url}" for chunk in relevant_chunks[:3]]
         
-        # Add assistant response to chat history
+        # Add assistant response to chat history with vectors info
         st.session_state.rag_chat_history.append({
             "role": "assistant", 
             "content": response,
             "timestamp": datetime.now().strftime("%H:%M"),
             "sources": sources,
             "method_used": method_used,
-            "relevant_chunks": relevant_chunks if relevant_chunks else []
+            "relevant_chunks": relevant_chunks if relevant_chunks else [],
+            "show_vectors": st.session_state.get("show_vectors_default", True),
+            "top_k_used": top_k,
+            "chunks_found": len(relevant_chunks) if relevant_chunks else 0
         })
         
         # Rerun to update display
@@ -935,28 +995,43 @@ class RAGKnowledgeRepository:
         for message in recent_messages:
             if message["role"] == "user":
                 # User message - use pure Streamlit components
-                st.markdown("**👤 You:**")
+                st.markdown("**You:**")
                 st.write(message['content'])
-                st.caption(f"🕒 {message['timestamp']}")
+                st.caption(f"Time: {message['timestamp']}")
                 
             else:
                 # Assistant message - use pure Streamlit components, no HTML
-                st.markdown("**🤖 Assistant:**")
+                st.markdown("**Assistant:**")
                 st.write(message['content'])
                 
                 # Show method used
                 if message.get("method_used"):
-                    st.caption(f"📡 {message['method_used']}")
+                    method_text = message['method_used']
+                    chunks_info = f" ({message.get('chunks_found', 0)} chunks)" if message.get('chunks_found') is not None else ""
+                    st.caption(f"Method: {method_text}{chunks_info}")
+                
+                # Display top K vectors with similarity scores
+                # Show vectors based on current setting AND if chunks are available
+                current_show_vectors = st.session_state.get("show_vectors_default", True)
+                has_chunks = message.get("relevant_chunks") and len(message.get("relevant_chunks", [])) > 0
+                
+                if current_show_vectors:
+                    if has_chunks:
+                        chunks_count = len(message["relevant_chunks"])
+                        with st.expander(f"Vector Details & Similarity Scores ({chunks_count} vectors)", expanded=False):
+                            self._display_vector_details(message["relevant_chunks"], message.get("top_k_used", 5))
+                    else:
+                        st.caption("No vector chunks retrieved for this query")
                 
                 # Display sources separately if available
                 if message.get("sources"):
                     sources_list = list(set(message["sources"]))  # Remove duplicates
-                    with st.expander("📄 Sources", expanded=False):
+                    with st.expander("Sources", expanded=False):
                         for i, source in enumerate(sources_list, 1):
                             st.write(f"{i}. {source}")
                 
                 # Display timestamp
-                st.caption(f"🕒 {message['timestamp']}")
+                st.caption(f"Time: {message['timestamp']}")
                 st.markdown("---")  # Separator between messages
     
     def _retrieve_relevant_chunks(self, question: str, selected_websites: List[Dict], top_k: int = 5) -> List[RetrievalResult]:
@@ -2026,6 +2101,194 @@ Answer:"""
                 cursor.execute('DELETE FROM content_chunks')
                 cursor.execute('DELETE FROM websites')
                 conn.commit()
-                st.success("✅ Knowledge base cleared")
+                st.success("Knowledge base cleared")
         except Exception as e:
             st.error(f"Failed to clear knowledge base: {e}")
+    
+    def _display_vector_details(self, relevant_chunks: List[RetrievalResult], top_k_used: int):
+        """Display detailed information about the top K vectors"""
+        
+        if not relevant_chunks:
+            st.info("No vectors retrieved for this query")
+            return
+        
+        st.markdown(f"**Vector Retrieval Details (Top {top_k_used})**")
+        
+        # Add similarity chart
+        self._display_vector_similarity_chart(relevant_chunks)
+        
+        # Summary statistics
+        if len(relevant_chunks) > 1:
+            avg_score = np.mean([r.similarity_score for r in relevant_chunks])
+            max_score = max([r.similarity_score for r in relevant_chunks])
+            min_score = min([r.similarity_score for r in relevant_chunks])
+            
+            stats_cols = st.columns(4)
+            with stats_cols[0]:
+                st.metric("Retrieved", len(relevant_chunks))
+            with stats_cols[1]:
+                st.metric("Avg Similarity", f"{avg_score:.3f}")
+            with stats_cols[2]:
+                st.metric("Max Similarity", f"{max_score:.3f}")
+            with stats_cols[3]:
+                st.metric("Min Similarity", f"{min_score:.3f}")
+        
+        # Display each vector chunk
+        for idx, result in enumerate(relevant_chunks, 1):
+            chunk = result.chunk
+            
+            # Create container for each vector
+            with st.container():
+                # Header with ranking and scores
+                col1, col2, col3 = st.columns([1, 2, 1])
+                
+                with col1:
+                    st.markdown(f"**Rank #{idx}**")
+                
+                with col2:
+                    title_display = chunk.website_title[:40] + "..." if len(chunk.website_title) > 40 else chunk.website_title
+                    st.markdown(f"**Website:** {title_display}")
+                
+                with col3:
+                    # Color code based on score
+                    score_color = "#28a745" if result.similarity_score > 0.7 else "#ffc107" if result.similarity_score > 0.4 else "#dc3545"
+                    st.markdown(f'<span style="color: {score_color}; font-weight: 500;">Score: {result.similarity_score:.3f}</span>', unsafe_allow_html=True)
+                
+                # Show content preview
+                st.markdown("**Content Preview:**")
+                content_preview = chunk.content[:150] + "..." if len(chunk.content) > 150 else chunk.content
+                st.text(content_preview)
+                
+                # Show metadata in expandable section
+                with st.expander(f"Vector #{idx} Details", expanded=False):
+                    metadata_cols = st.columns(2)
+                    
+                    with metadata_cols[0]:
+                        st.write(f"**Chunk ID:** `{chunk.chunk_id[:12]}...`")
+                        st.write(f"**Chunk Type:** {chunk.chunk_type}")
+                        st.write(f"**Position:** {chunk.position}")
+                    
+                    with metadata_cols[1]:
+                        st.write(f"**Similarity:** {result.similarity_score:.4f}")
+                        st.write(f"**Relevance:** {result.relevance_score:.4f}")
+                        st.write(f"**URL:** {chunk.website_url}")
+                    
+                    # Show embedding vector if available (first few dimensions)
+                    if hasattr(chunk, 'embedding') and chunk.embedding is not None:
+                        st.markdown("**Embedding Vector (first 10 dimensions):**")
+                        if isinstance(chunk.embedding, np.ndarray):
+                            vector_preview = chunk.embedding[:10]
+                            st.code(f"[{', '.join([f'{v:.4f}' for v in vector_preview])} ...]")
+                            st.caption(f"Full vector dimension: {len(chunk.embedding)}")
+                
+                if idx < len(relevant_chunks):  # Don't add separator after last item
+                    st.markdown("---")
+    
+    def _display_vector_similarity_chart(self, relevant_chunks: List[RetrievalResult]):
+        """Display a simple chart showing vector similarity distribution"""
+        
+        if not relevant_chunks or len(relevant_chunks) < 2:
+            return
+        
+        if PLOTLY_AVAILABLE:
+            try:
+                # Prepare data for visualization
+                chunk_labels = [f"Chunk {i+1}" for i in range(len(relevant_chunks))]
+                similarity_scores = [r.similarity_score for r in relevant_chunks]
+                
+                # Create simple bar chart
+                fig = go.Figure()
+                
+                # Add similarity scores with color coding
+                colors = ['#28a745' if s > 0.7 else '#ffc107' if s > 0.4 else '#dc3545' for s in similarity_scores]
+                
+                fig.add_trace(go.Bar(
+                    name='Similarity Score',
+                    x=chunk_labels,
+                    y=similarity_scores,
+                    text=[f"{s:.3f}" for s in similarity_scores],
+                    textposition='auto',
+                    marker_color=colors
+                ))
+                
+                # Update layout for professional appearance
+                fig.update_layout(
+                    title="Vector Similarity Distribution",
+                    xaxis_title="Content Chunks",
+                    yaxis_title="Similarity Score",
+                    height=250,
+                    showlegend=False,
+                    yaxis=dict(range=[0, 1]),
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(248, 249, 250, 0.5)',
+                    margin=dict(l=40, r=40, t=50, b=40)
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+                
+            except Exception as e:
+                logger.warning(f"Could not display plotly chart: {e}")
+                self._display_text_based_chart(relevant_chunks)
+        else:
+            # Fallback to text-based display if plotly not available
+            self._display_text_based_chart(relevant_chunks)
+    
+    def _display_text_based_chart(self, relevant_chunks: List[RetrievalResult]):
+        """Fallback text-based similarity display"""
+        st.markdown("**Similarity Score Distribution:**")
+        for i, result in enumerate(relevant_chunks, 1):
+            score_bar = "█" * int(result.similarity_score * 20)
+            score_color = "#28a745" if result.similarity_score > 0.7 else "#ffc107" if result.similarity_score > 0.4 else "#dc3545"
+            st.markdown(f'<span style="color: {score_color};">Chunk {i}: {score_bar} {result.similarity_score:.3f}</span>', unsafe_allow_html=True)
+    
+    def _add_test_vector_display(self):
+        """Add a test message with sample vector data for demonstration"""
+        
+        # Create sample content chunks
+        sample_chunks = []
+        for i in range(3):
+            chunk = ContentChunk(
+                chunk_id=f"test_chunk_{i+1}",
+                website_id="test_website",
+                website_title="Sample Website",
+                website_url="https://example.com",
+                content=f"This is sample content chunk {i+1} for testing vector display functionality. It contains relevant information that would be retrieved by vector similarity search.",
+                chunk_type="paragraph",
+                position=i,
+                embedding=np.random.rand(384) if EMBEDDINGS_AVAILABLE else None
+            )
+            
+            # Create retrieval result with realistic similarity scores
+            result = RetrievalResult(
+                chunk=chunk,
+                similarity_score=0.9 - (i * 0.2),  # Decreasing similarity
+                relevance_score=0.85 - (i * 0.15)
+            )
+            sample_chunks.append(result)
+        
+        # Initialize chat history if not exists
+        if "rag_chat_history" not in st.session_state:
+            st.session_state.rag_chat_history = []
+        
+        # Add test user message
+        st.session_state.rag_chat_history.append({
+            "role": "user",
+            "content": "What is the main content of the website?",
+            "timestamp": datetime.now().strftime("%H:%M")
+        })
+        
+        # Add test assistant response with sample vectors
+        st.session_state.rag_chat_history.append({
+            "role": "assistant",
+            "content": "Based on the analyzed content, the website contains information about testing vector display functionality. This response demonstrates how vector similarity scores and chunk details are displayed.",
+            "timestamp": datetime.now().strftime("%H:%M"),
+            "sources": ["https://example.com"],
+            "method_used": "RAG with Vector Similarity (Test Data)",
+            "relevant_chunks": sample_chunks,
+            "show_vectors": True,
+            "top_k_used": 3,
+            "chunks_found": 3
+        })
+        
+        st.success("Test vector display added! Check the chat history below.")
+        st.rerun()
