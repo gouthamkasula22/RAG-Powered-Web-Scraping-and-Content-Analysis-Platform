@@ -103,6 +103,11 @@ class AnalysisRequest(BaseModel):
     analysis_type: str = "comprehensive"
     quality_preference: str = "balanced"
     max_cost: float = 0.05
+    # Image processing control parameters
+    extract_images: bool = True  # Toggle image extraction
+    download_images: bool = False  # Control downloading (default False for performance)
+    max_images: int = 10  # Limit number of images to process
+    generate_thumbnails: bool = False  # Control immediate thumbnail generation
 
 class BulkAnalysisRequest(BaseModel):
     urls: List[HttpUrl]
@@ -110,6 +115,11 @@ class BulkAnalysisRequest(BaseModel):
     quality_preference: str = "balanced"
     max_cost: float = 0.05
     parallel_limit: int = 3
+    # Image processing control parameters (same as AnalysisRequest)
+    extract_images: bool = True
+    download_images: bool = False
+    max_images: int = 10
+    generate_thumbnails: bool = False
 
 class AnalysisResponse(BaseModel):
     analysis_id: str
@@ -292,8 +302,15 @@ async def analyze_content(request: AnalysisRequest):
                 detail=f"Invalid analysis type: {request.analysis_type}"
             )
         
-        # Execute analysis
-        result = await analysis_service.analyze_url(str(request.url), analysis_type_enum)
+        # Execute analysis with image parameters
+        result = await analysis_service.analyze_url(
+            str(request.url), 
+            analysis_type_enum,
+            extract_images=request.extract_images,
+            download_images=request.download_images,
+            max_images=request.max_images,
+            generate_thumbnails=request.generate_thumbnails
+        )
         
         # Debug logging to understand the result structure
         logger.info(f"Analysis result type: {type(result)}")

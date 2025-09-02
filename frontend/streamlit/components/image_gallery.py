@@ -70,7 +70,7 @@ class ImageGallery:
         try:
             response = requests.get(
                 f"{self.backend_url}/api/images/content/{content_id}",
-                timeout=10
+                timeout=20  # Increased timeout for better reliability
             )
             response.raise_for_status()
             return response.json()
@@ -116,11 +116,12 @@ class ImageGallery:
             # Create container for image
             with st.container():
                 # Display image thumbnail
-                if image.get('thumbnail_url'):
+                if image.get('thumbnail_url') and image.get('file_path'):
+                    # Image was downloaded and thumbnail is available
                     thumbnail_url = f"{self.backend_url}{image['thumbnail_url']}"
                     
                     try:
-                        response = requests.get(thumbnail_url, timeout=5)
+                        response = requests.get(thumbnail_url, timeout=15)  # Increased for lazy generation
                         response.raise_for_status()
                         
                         # Display image
@@ -135,8 +136,13 @@ class ImageGallery:
                     except Exception as e:
                         logger.warning(f"Failed to load thumbnail: {str(e)}")
                         st.error(f"🖼️ Failed to load image: {str(e)}")
+                elif image.get('file_path'):
+                    # Image was downloaded but thumbnail might be generating
+                    st.info("🔄 Thumbnail generating... Please refresh if needed")
                 else:
-                    st.info("� No thumbnail available for this image")
+                    # Image was found but not downloaded
+                    st.info(f"🔗 Image URL found: {image.get('url', 'Unknown')[:50]}...")
+                    st.caption("💡 Enable 'Download Images' to see thumbnails")
                 
                 # Image metadata
                 st.caption(f"**Type:** {image.get('image_type', 'Unknown')}")
@@ -148,8 +154,10 @@ class ImageGallery:
                     st.caption(f"**Size:** {image['width']}×{image['height']}")
                 
                 if image.get('file_size'):
-                    size_kb = image['file_size'] / 1024
-                    st.caption(f"**File:** {size_kb:.1f} KB")
+                    file_size = image.get('file_size', 0)
+                    if file_size and file_size > 0:
+                        size_kb = file_size / 1024
+                        st.caption(f"**File:** {size_kb:.1f} KB")
                 
                 # Action buttons
                 col1, col2 = st.columns(2)
@@ -192,6 +200,7 @@ class ImageGallery:
                         st.error(f"Failed to load full image: {str(e)}")
                 
                 # Detailed metadata
+                file_size = image.get('file_size', 0) or 0
                 st.json({
                     "URL": image.get('url', ''),
                     "Alt Text": image.get('alt_text', ''),
@@ -200,7 +209,7 @@ class ImageGallery:
                     "Type": image.get('image_type', ''),
                     "Format": image.get('image_format', ''),
                     "Dimensions": f"{image.get('width', 0)}×{image.get('height', 0)}",
-                    "File Size": f"{(image.get('file_size', 0) / 1024):.1f} KB",
+                    "File Size": f"{(file_size / 1024):.1f} KB",
                     "Is Decorative": image.get('is_decorative', False),
                     "Extracted At": image.get('extracted_at', '')
                 })

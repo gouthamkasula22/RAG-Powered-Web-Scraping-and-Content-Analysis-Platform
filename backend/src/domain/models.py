@@ -546,6 +546,9 @@ class ScrapingRequest:
     max_content_length: int = 1_000_000  # 1MB limit
     follow_redirects: bool = True
     extract_images: bool = False
+    download_images: bool = False  # New parameter for controlling downloads
+    max_images: int = 10  # New parameter for limiting image count
+    generate_thumbnails: bool = False  # New parameter for thumbnail generation
     extract_scripts: bool = False
     custom_headers: Dict[str, str] = field(default_factory=dict)
     

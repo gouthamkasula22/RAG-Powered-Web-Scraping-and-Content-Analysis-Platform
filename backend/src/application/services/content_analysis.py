@@ -105,8 +105,60 @@ class ContentAnalysisService(IContentAnalysisService):
             'credibility_signals': 0.10
         }
     
-    async def analyze_url(self, url: str, analysis_type: AnalysisType = AnalysisType.COMPREHENSIVE) -> AnalysisResult:
-        """Complete URL analysis pipeline"""
+    def _check_analysis_cache(self, cache_key: str) -> Optional[AnalysisResult]:
+        """Check if analysis result exists in cache (5 minute TTL)"""
+        try:
+            if cache_key in self.analysis_cache:
+                cached_result = self.analysis_cache[cache_key]
+                
+                # Check if cache is still fresh (5 minutes TTL)
+                cache_age = (datetime.now() - cached_result.created_at).total_seconds()
+                if cache_age < 300:  # 5 minutes
+                    logger.info(f"📊 Analysis cache HIT (age: {round(cache_age, 1)}s)")
+                    return cached_result
+                else:
+                    logger.info(f"🕐 Analysis cache EXPIRED (age: {round(cache_age, 1)}s)")
+                    del self.analysis_cache[cache_key]
+            
+            return None
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Analysis cache check failed: {e}")
+            return None
+    
+    def _save_to_analysis_cache(self, cache_key: str, result: AnalysisResult):
+        """Save analysis result to cache"""
+        try:
+            self.analysis_cache[cache_key] = result
+            logger.info(f"💾 Analysis result cached for key: {cache_key[:50]}...")
+            
+            # Limit cache size (keep last 50 analyses)
+            if len(self.analysis_cache) > 50:
+                oldest_key = min(self.analysis_cache.keys(), 
+                               key=lambda k: self.analysis_cache[k].created_at)
+                del self.analysis_cache[oldest_key]
+                logger.debug(f"🧹 Cache cleanup: removed oldest entry")
+                
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to save to analysis cache: {e}")
+    
+    async def analyze_url(self, 
+                         url: str, 
+                         analysis_type: AnalysisType = AnalysisType.COMPREHENSIVE,
+                         # Image processing parameters
+                         extract_images: bool = True,
+                         download_images: bool = False,
+                         max_images: int = 10,
+                         generate_thumbnails: bool = False) -> AnalysisResult:
+        """Complete URL analysis pipeline with result caching"""
+        
+        # Step 5: Check analysis result cache first
+        cache_key = f"{url}:{analysis_type.value}:{extract_images}:{download_images}:{max_images}"
+        cached_result = self._check_analysis_cache(cache_key)
+        if cached_result:
+            logger.info(f"🎯 Cache HIT for analysis: {url}")
+            return cached_result
+        
         analysis_id = str(uuid.uuid4())
         start_time = time.time()
         
@@ -119,11 +171,16 @@ class ContentAnalysisService(IContentAnalysisService):
             analysis_type=analysis_type
         )
         
-        logger.info(f"Starting content analysis for URL: {url}")
+        logger.info(f"🔍 Starting fresh content analysis for URL: {url}")
         
         try:
-            # Step 1: Scrape content
-            scraping_result = await self.scraping_service.secure_scrape(url)
+            # Step 1: Scrape content with image parameters
+            scraping_result = await self.scraping_service.secure_scrape(
+                url, 
+                extract_images=extract_images,
+                download_images=download_images,
+                max_images=max_images
+            )
             
             if scraping_result.status != ScrapingStatus.SUCCESS:
                 result.status = AnalysisStatus.FAILED
@@ -165,6 +222,10 @@ class ContentAnalysisService(IContentAnalysisService):
             result.processing_time = processing_time
             result.status = AnalysisStatus.COMPLETED
             
+            # Step 5: Save successful result to cache
+            cache_key = f"{url}:{analysis_type.value}:{extract_images}:{download_images}:{max_images}"
+            self._save_to_analysis_cache(cache_key, result)
+            
             logger.info(f"Enhanced analysis completed for {url} in {processing_time:.2f}s")
             
             return result
@@ -173,9 +234,6 @@ class ContentAnalysisService(IContentAnalysisService):
             logger.error(f"Analysis failed for {url}: {str(e)}")
             result.status = AnalysisStatus.FAILED
             result.error_message = str(e)
-            result.processing_time = time.time() - start_time
-            return result
-    
             result.processing_time = time.time() - start_time
             return result
     

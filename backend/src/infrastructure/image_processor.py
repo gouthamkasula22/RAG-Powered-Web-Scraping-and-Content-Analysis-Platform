@@ -66,7 +66,7 @@ class ImageProcessor:
                                 base_url: str,
                                 website_id: str) -> List[ExtractedImage]:
         """
-        Extract all images from HTML content
+        Extract all images from HTML content using multiple techniques
         
         Args:
             soup: BeautifulSoup object of the HTML
@@ -76,40 +76,113 @@ class ImageProcessor:
         Returns:
             List of ExtractedImage objects
         """
-        logger.info(f"🔍 Starting image extraction from {base_url}")
+        logger.info(f"🔍 Starting comprehensive image extraction from {base_url}")
         
         if not HAS_IMAGE_DEPS:
             logger.warning("Image processing dependencies not available")
             return []
-        
+
         images = []
+        found_urls = set()  # Prevent duplicates
+
+        # 1. Traditional img tags
         img_tags = soup.find_all('img')
-        logger.info(f"🔍 Found {len(img_tags)} img tags on {base_url}")
-        
-        logger.info(f"Found {len(img_tags)} image tags in HTML")
+        logger.info(f"🔍 Found {len(img_tags)} img tags")
         
         for img_tag in img_tags:
             try:
                 image_info = self._extract_image_info(img_tag, base_url)
-                if image_info:
+                if image_info and image_info.original_url not in found_urls:
+                    found_urls.add(image_info.original_url)
                     extracted_image = ExtractedImage(info=image_info)
                     images.append(extracted_image)
             except Exception as e:
-                logger.warning(f"Failed to extract image info: {e}")
+                logger.debug(f"Failed to extract img tag: {e}")
                 continue
+
+        # 2. Picture elements with source sets
+        picture_tags = soup.find_all('picture')
+        logger.info(f"🔍 Found {len(picture_tags)} picture elements")
         
-        logger.info(f"🎉 Image extraction complete: returning {len(images)} images")
+        for picture in picture_tags:
+            try:
+                # Look for source tags first, then img
+                sources = picture.find_all('source')
+                for source in sources:
+                    srcset = source.get('srcset')
+                    if srcset:
+                        urls = self._extract_srcset_urls(srcset)
+                        for url in urls:
+                            full_url = urljoin(base_url, url)
+                            if full_url not in found_urls:
+                                found_urls.add(full_url)
+                                image_info = ImageInfo(
+                                    original_url=full_url,
+                                    alt_text="",
+                                    image_type=ImageType.CONTENT
+                                )
+                                images.append(ExtractedImage(info=image_info))
+                                break  # Just take first URL from srcset
+            except Exception as e:
+                logger.debug(f"Failed to extract picture element: {e}")
+                continue
+
+        # 3. Meta tags (Open Graph, Twitter Cards)
+        meta_images = self._extract_meta_images(soup, base_url)
+        for img_url in meta_images:
+            if img_url not in found_urls:
+                found_urls.add(img_url)
+                image_info = ImageInfo(
+                    original_url=img_url,
+                    alt_text="Meta image",
+                    image_type=ImageType.CONTENT
+                )
+                images.append(ExtractedImage(info=image_info))
+
+        # 4. CSS background images (basic extraction)
+        bg_images = self._extract_background_images(soup, base_url)
+        for img_url in bg_images:
+            if img_url not in found_urls:
+                found_urls.add(img_url)
+                image_info = ImageInfo(
+                    original_url=img_url,
+                    alt_text="Background image",
+                    image_type=ImageType.DECORATIVE
+                )
+                images.append(ExtractedImage(info=image_info))
+
+        logger.info(f"🎉 Comprehensive extraction complete: {len(images)} unique images found")
         return images
     
     def _extract_image_info(self, img_tag: Tag, base_url: str) -> Optional[ImageInfo]:
-        """Extract image information from img tag"""
-        # Get image URL
-        src = img_tag.get('src') or img_tag.get('data-src')
+        """Extract image information from img tag with modern lazy loading support"""
+        # Try multiple src attributes (common lazy loading patterns)
+        src_attrs = [
+            'src', 'data-src', 'data-lazy-src', 'data-original', 
+            'data-srcset', 'data-lazy', 'data-echo', 'data-original-src'
+        ]
+        
+        src = None
+        for attr in src_attrs:
+            src = img_tag.get(attr)
+            if src:
+                break
+        
         if not src:
             return None
         
+        # Handle srcset (take first URL)
+        if 'srcset' in src or ',' in src:
+            urls = self._extract_srcset_urls(src)
+            if urls:
+                src = urls[0]
+        
         # Resolve relative URLs
         full_url = urljoin(base_url, src)
+        
+        # Validate URL
+        if not self._is_valid_image_url(full_url):
+            return None
         
         # Extract attributes
         alt_text = img_tag.get('alt', '').strip()
@@ -435,3 +508,78 @@ class ImageProcessor:
         
         except Exception as e:
             logger.error(f"Failed to cleanup old images: {e}")
+
+    def _extract_srcset_urls(self, srcset: str) -> List[str]:
+        """Extract URLs from srcset attribute"""
+        urls = []
+        # srcset format: "url1 width1, url2 width2, ..."
+        parts = srcset.split(',')
+        for part in parts:
+            url = part.strip().split()[0]  # Take URL part before width descriptor
+            if url:
+                urls.append(url)
+        return urls
+
+    def _extract_meta_images(self, soup: BeautifulSoup, base_url: str) -> List[str]:
+        """Extract images from meta tags (Open Graph, Twitter Cards)"""
+        urls = []
+        
+        # Open Graph images
+        og_images = soup.find_all('meta', property=['og:image', 'og:image:url'])
+        for meta in og_images:
+            content = meta.get('content')
+            if content:
+                full_url = urljoin(base_url, content)
+                urls.append(full_url)
+        
+        # Twitter Card images
+        twitter_images = soup.find_all('meta', attrs={'name': ['twitter:image', 'twitter:image:src']})
+        for meta in twitter_images:
+            content = meta.get('content')
+            if content:
+                full_url = urljoin(base_url, content)
+                urls.append(full_url)
+        
+        return urls
+
+    def _extract_background_images(self, soup: BeautifulSoup, base_url: str) -> List[str]:
+        """Extract background images from inline styles"""
+        urls = []
+        
+        # Find elements with style attributes
+        elements_with_style = soup.find_all(attrs={'style': True})
+        for element in elements_with_style:
+            style = element.get('style', '')
+            # Look for background-image: url(...)
+            import re
+            bg_matches = re.findall(r'background-image\s*:\s*url\(["\']?(.*?)["\']?\)', style, re.IGNORECASE)
+            for match in bg_matches:
+                full_url = urljoin(base_url, match)
+                if self._is_valid_image_url(full_url):
+                    urls.append(full_url)
+        
+        return urls
+
+    def _is_valid_image_url(self, url: str) -> bool:
+        """Check if URL looks like a valid image URL"""
+        if not url or len(url) > 2000:  # Reasonable URL length limit
+            return False
+        
+        # Skip data URLs, javascript, etc.
+        if url.startswith(('data:', 'javascript:', 'mailto:', '#')):
+            return False
+        
+        # Check for common image extensions or formats
+        image_patterns = [
+            r'\.(jpg|jpeg|png|gif|svg|webp|bmp|tiff)(\?|$)',  # File extensions
+            r'/image/',  # Path contains 'image'
+            r'\.amazonaws\.com.*\.(jpg|jpeg|png|gif|svg|webp)',  # AWS S3 images
+            r'cloudinary\.com',  # Cloudinary CDN
+            r'imgix\.net',  # Imgix CDN
+        ]
+        
+        for pattern in image_patterns:
+            if re.search(pattern, url, re.IGNORECASE):
+                return True
+        
+        return False

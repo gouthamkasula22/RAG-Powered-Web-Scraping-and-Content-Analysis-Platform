@@ -8,6 +8,7 @@ import asyncio
 import sqlite3
 import json
 import numpy as np
+import logging
 from typing import Dict, List, Any, Optional, Tuple
 from datetime import datetime
 import hashlib
@@ -63,6 +64,9 @@ try:
 except ImportError as e:
     LLM_SERVICE_AVAILABLE = False
     print(f"❌ LLM service import failed: {e}")
+
+# Create logger
+logger = logging.getLogger(__name__)
 
 @dataclass
 class ContentChunk:
@@ -170,11 +174,11 @@ class RAGKnowledgeRepository:
                 metadata={"hnsw:space": "cosine"}  # Use cosine similarity
             )
             
-            print(f"✅ ChromaDB initialized successfully at {self.chroma_path}")
+            logger.info(f"✅ ChromaDB initialized successfully at {self.chroma_path}")
             return True
             
         except Exception as e:
-            print(f"❌ ChromaDB initialization failed: {e}")
+            logger.error(f"❌ ChromaDB initialization failed: {e}")
             self.chroma_client = None
             self.chroma_collection = None
             return False

@@ -253,6 +253,24 @@ def render_main_interface(analysis_type, quality_preference, max_cost):
     with col2:
         analyze_button = st.button("Analyze", type="primary", use_container_width=True)
     
+    # Image Processing Controls (NEW!)
+    st.subheader("🖼️ Image Processing Options")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        extract_images = st.checkbox("Extract Images", value=True, help="Find and catalog images on the page")
+        download_images = st.checkbox("Download Images", value=False, help="Download images locally (slower but enables offline access)")
+    
+    with col2:
+        max_images = st.slider("Max Images", min_value=1, max_value=50, value=10, help="Limit number of images to process")
+        generate_thumbnails = st.checkbox("Generate Thumbnails", value=False, help="Create thumbnails immediately (slower) vs on-demand (faster)")
+    
+    # Performance hint
+    if download_images:
+        st.info("💡 **Performance Tip:** Downloading images will increase analysis time. Thumbnails are generated on-demand for better speed!")
+    
+    st.markdown("---")  # Separator
+    
     # Handle analysis
     if analyze_button and url_input:
         # Map display names to backend keys
@@ -273,7 +291,16 @@ def render_main_interface(analysis_type, quality_preference, max_cost):
         analysis_type_key = analysis_type_map[analysis_type]
         quality_preference_key = quality_preference_map[quality_preference]
         
-        asyncio.run(run_analysis(url_input, analysis_type_key, quality_preference_key, max_cost))
+        asyncio.run(run_analysis(
+            url_input, 
+            analysis_type_key, 
+            quality_preference_key, 
+            max_cost,
+            extract_images,
+            download_images,
+            max_images,
+            generate_thumbnails
+        ))
     elif analyze_button and not url_input:
         st.error("Please enter a valid URL")
     
@@ -282,7 +309,8 @@ def render_main_interface(analysis_type, quality_preference, max_cost):
         st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
         display_analysis_results(st.session_state.current_analysis)
 
-async def run_analysis(url: str, analysis_type: str, quality_preference: str, max_cost: float):
+async def run_analysis(url: str, analysis_type: str, quality_preference: str, max_cost: float,
+                      extract_images: bool, download_images: bool, max_images: int, generate_thumbnails: bool):
     """Execute analysis with enhanced progress tracking"""
     
     try:
@@ -309,7 +337,12 @@ async def run_analysis(url: str, analysis_type: str, quality_preference: str, ma
             "url": url,
             "analysis_type": analysis_type.lower(),
             "quality_preference": quality_preference.lower(),
-            "max_cost": max_cost
+            "max_cost": max_cost,
+            # Image processing parameters
+            "extract_images": extract_images,
+            "download_images": download_images,
+            "max_images": max_images,
+            "generate_thumbnails": generate_thumbnails
         }
         
         # Update progress - sending request

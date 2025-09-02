@@ -151,12 +151,105 @@ class ImageRepository:
                 conn.rollback()
                 conn.close()
             return False
+    
+    def update_thumbnail_path(self, image_id: int, thumbnail_path: str) -> bool:
+        """Update the thumbnail path for an image"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                UPDATE images 
+                SET thumbnail_path = ? 
+                WHERE id = ?
+            """, (thumbnail_path, image_id))
+            
+            conn.commit()
+            conn.close()
+            
+            logger.info(f"✅ Updated thumbnail path for image {image_id}: {thumbnail_path}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Error updating thumbnail path for image {image_id}: {str(e)}")
+            if 'conn' in locals():
+                conn.rollback()
+                conn.close()
+            return False
 
 # Initialize repository (will be dependency injected)
 def get_image_repository() -> ImageRepository:
     """Dependency injection for ImageRepository"""
     db_path = os.getenv("DATABASE_PATH", "data/analysis_history.db")
     return ImageRepository(db_path)
+
+async def generate_thumbnail_lazy(original_path: str, thumbnail_path: str):
+    """Generate thumbnail on-demand (async wrapper around sync PIL operations)"""
+    import asyncio
+    from PIL import Image
+    import io
+    
+    def _create_thumbnail_sync():
+        """Synchronous thumbnail creation logic"""
+        try:
+            # Check if it's an SVG file
+            if original_path.lower().endswith('.svg'):
+                try:
+                    import cairosvg
+                    
+                    logger.info(f"🎨 Processing SVG file: {original_path}")
+                    
+                    # Convert SVG to PNG in memory
+                    with open(original_path, 'rb') as svg_file:
+                        svg_data = svg_file.read()
+                    
+                    # Convert SVG to PNG with 200x200 max size
+                    png_data = cairosvg.svg2png(
+                        bytestring=svg_data,
+                        output_width=200,
+                        output_height=200
+                    )
+                    
+                    # Save as JPEG thumbnail
+                    img = Image.open(io.BytesIO(png_data))
+                    if img.mode in ('RGBA', 'LA', 'P'):
+                        background = Image.new('RGB', img.size, (255, 255, 255))
+                        background.paste(img, mask=img.split()[-1] if img.mode in ('RGBA', 'LA') else None)
+                        img = background
+                    
+                    img.save(thumbnail_path, 'JPEG', quality=85, optimize=True)
+                    logger.info(f"✅ Created SVG thumbnail {thumbnail_path}")
+                    return
+                    
+                except ImportError:
+                    logger.warning(f"⚠️ cairosvg not available, skipping SVG: {original_path}")
+                    raise Exception("SVG processing not available")
+                except Exception as svg_error:
+                    logger.warning(f"⚠️ SVG processing failed: {svg_error}, skipping")
+                    raise Exception(f"SVG processing failed: {svg_error}")
+            
+            # Handle regular raster images
+            with Image.open(original_path) as img:
+                # Convert RGBA to RGB if necessary
+                if img.mode in ('RGBA', 'LA', 'P'):
+                    background = Image.new('RGB', img.size, (255, 255, 255))
+                    if img.mode == 'P':
+                        img = img.convert('RGBA')
+                    background.paste(img, mask=img.split()[-1] if img.mode in ('RGBA', 'LA') else None)
+                    img = background
+                
+                # Create thumbnail
+                img.thumbnail((200, 200), Image.Resampling.LANCZOS)
+                img.save(thumbnail_path, 'JPEG', quality=85, optimize=True)
+                
+            logger.info(f"✅ Created lazy thumbnail {thumbnail_path}")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to create lazy thumbnail: {e}")
+            raise
+    
+    # Run the sync operation in a thread pool to avoid blocking
+    await asyncio.get_event_loop().run_in_executor(None, _create_thumbnail_sync)
 
 # API Endpoints
 @router.get("/content/{content_id}", response_model=List[dict])
@@ -197,7 +290,7 @@ async def get_images_for_content(
                 "is_decorative": image.info.is_decorative,
                 "extracted_at": image.extracted_at.isoformat(),
                 "download_url": f"/api/images/download/{image.id}" if image.local_path else None,
-                "thumbnail_url": f"/api/images/thumbnail/{image.id}" if image.thumbnail_path else None
+                "thumbnail_url": f"/api/images/thumbnail/{image.id}" if image.local_path else None  # Changed: if local_path exists, thumbnail can be generated
             })
         
         return result
@@ -237,28 +330,52 @@ async def get_thumbnail(
     image_id: int = FastAPIPath(..., description="ID of the image to get thumbnail for"),
     repo: ImageRepository = Depends(get_image_repository)
 ):
-    """Get the thumbnail version of an image"""
+    """Get or generate thumbnail on-demand (lazy generation)"""
     try:
         image = repo.get_image_by_id(image_id)
         if not image:
             raise HTTPException(status_code=404, detail="Image not found")
         
-        if not image.thumbnail_path or not Path(image.thumbnail_path).exists():
-            # Fall back to full image if thumbnail doesn't exist
-            if image.local_path and Path(image.local_path).exists():
+        # Check if thumbnail already exists
+        if image.thumbnail_path and Path(image.thumbnail_path).exists():
+            logger.debug(f"📸 Serving existing thumbnail for image {image_id}")
+            return FileResponse(
+                path=image.thumbnail_path,
+                media_type="image/jpeg"
+            )
+        
+        # Generate thumbnail on-demand if original exists
+        if image.local_path and Path(image.local_path).exists():
+            logger.info(f"🔄 Generating thumbnail on-demand for image {image_id}")
+            
+            try:
+                # Generate thumbnail path
+                thumbnail_dir = Path("data/images/thumbnails")
+                thumbnail_dir.mkdir(parents=True, exist_ok=True)
+                thumbnail_path = thumbnail_dir / f"thumb_{image_id}.jpg"
+                
+                # Generate thumbnail
+                await generate_thumbnail_lazy(image.local_path, str(thumbnail_path))
+                
+                # Update database with thumbnail path
+                repo.update_thumbnail_path(image_id, str(thumbnail_path))
+                
+                logger.info(f"✅ Generated lazy thumbnail: {thumbnail_path}")
+                return FileResponse(
+                    path=str(thumbnail_path),
+                    media_type="image/jpeg"
+                )
+                
+            except Exception as thumb_error:
+                logger.warning(f"⚠️ Lazy thumbnail generation failed: {thumb_error}")
+                # Fall back to original image
                 return FileResponse(
                     path=image.local_path,
-                    filename=f"thumb_{image_id}.{image.info.image_format.value.lower()}",
                     media_type=f"image/{image.info.image_format.value.lower()}"
                 )
-            else:
-                raise HTTPException(status_code=404, detail="Image thumbnail not found")
         
-        return FileResponse(
-            path=image.thumbnail_path,
-            filename=f"thumb_{image_id}.{image.info.image_format.value.lower()}",
-            media_type=f"image/{image.info.image_format.value.lower()}"
-        )
+        # No original image available
+        raise HTTPException(status_code=404, detail="Image file not found")
         
     except HTTPException:
         raise
