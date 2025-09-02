@@ -92,7 +92,10 @@ backend_api_path = Path(__file__).parent
 sys.path.insert(0, str(backend_api_path))
 
 from knowledge_repository.simple_routes import router as knowledge_router
+from images import router as images_router
+
 app.include_router(knowledge_router, prefix="/api", tags=["knowledge-repository"])
+app.include_router(images_router, tags=["images"])
 
 # Request/Response Models
 class AnalysisRequest(BaseModel):
@@ -112,6 +115,7 @@ class AnalysisResponse(BaseModel):
     analysis_id: str
     url: str
     status: str
+    content_id: Optional[int] = None  # Database ID for scraped content
     executive_summary: Optional[str] = None
     metrics: Optional[Dict[str, float]] = None
     insights: Optional[Dict[str, List[str]]] = None
@@ -177,36 +181,13 @@ async def startup_event():
                     self.config = config
                 
                 async def analyze_content(self, request):
-                    # Simple mock response without complex imports
                     import time
-                    await asyncio.sleep(0.5)  # Simulate processing time
-                    
+                    await asyncio.sleep(0.5)
                     word_count = len(request.content.split()) if hasattr(request, 'content') else 100
                     
-                    # Create a simple mock response
                     class MockLLMResponse:
                         def __init__(self):
-                            self.content = f"""
-# Mock Analysis Results
-
-## Executive Summary
-This is a mock analysis of the provided content with {word_count} words. The analysis includes content quality assessment, SEO evaluation, and user experience insights.
-
-## Key Findings
-- Content Quality: Good structure and readability
-- SEO Performance: Adequate optimization for search engines
-- User Experience: Positive user engagement indicators
-
-## Recommendations
-1. Improve content structure with better headings
-2. Optimize meta descriptions for better SEO
-3. Enhance user engagement with interactive elements
-
-## Technical Details
-- Word Count: {word_count}
-- Processing Time: 0.5 seconds
-- Analysis Method: Mock LLM Service
-"""
+                            self.content = f"Mock Analysis Results - Word Count: {word_count}"
                             self.provider = "MOCK"
                             self.model_used = "mock-llm-v1"
                             self.tokens_used = word_count
@@ -220,149 +201,12 @@ This is a mock analysis of the provided content with {word_count} words. The ana
             
             llm_service = MockLLMService(config)
         
-        # Create web scraper
-        try:
-            import requests
-            from bs4 import BeautifulSoup
-            
-            class ProductionScraper:
-                def __init__(self):
-                    self.session = requests.Session()
-                    self.session.headers.update({
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                    })
-                
-                async def scrape_content(self, request):
-                    from src.domain.models import (ScrapingResult, URLInfo, ContentMetrics, 
-                                                 ScrapedContent, ContentType, ScrapingStatus)
-                    from datetime import datetime
-                    import asyncio
-                    
-                    url = str(request.url)
-                    
-                    try:
-                        response = await asyncio.get_event_loop().run_in_executor(
-                            None, lambda: self.session.get(url, timeout=30)
-                        )
-                        response.raise_for_status()
-                        
-                        soup = BeautifulSoup(response.content, 'html.parser')
-                        
-                        # Extract title
-                        title_tag = soup.find('title')
-                        title = title_tag.get_text().strip() if title_tag else URLInfo.from_url(url).domain
-                        
-                        # Remove scripts and styles
-                        for script in soup(["script", "style", "nav", "header", "footer"]):
-                            script.decompose()
-                        
-                        # Extract main content
-                        main_content = ""
-                        content_selectors = ['main', 'article', '.content', '.main-content', 'body']
-                        
-                        for selector in content_selectors:
-                            content_elem = soup.select_one(selector)
-                            if content_elem:
-                                main_content = content_elem.get_text(separator=' ', strip=True)
-                                if len(main_content.split()) > 50:
-                                    break
-                        
-                        if not main_content or len(main_content.split()) < 20:
-                            main_content = soup.get_text(separator=' ', strip=True)
-                        
-                        # Extract headings and links
-                        headings = [h.get_text().strip() for h in soup.find_all(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']) if h.get_text().strip()]
-                        links = [link['href'] for link in soup.find_all('a', href=True) if link['href'].startswith('http')]
-                        
-                        # Create result objects
-                        url_info = URLInfo.from_url(url)
-                        metrics = ContentMetrics.calculate(content=main_content, links=links, headings=headings)
-                        
-                        scraped_content = ScrapedContent(
-                            url_info=url_info,
-                            title=title,
-                            headings=headings,
-                            main_content=main_content,
-                            links=links,
-                            meta_description=None,
-                            meta_keywords=[],
-                            content_type=ContentType.ARTICLE,
-                            metrics=metrics,
-                            scraped_at=datetime.now(),
-                            status=ScrapingStatus.SUCCESS
-                        )
-                        
-                        return ScrapingResult(
-                            content=scraped_content,
-                            status=ScrapingStatus.SUCCESS,
-                            error_message=None,
-                            processing_time_seconds=1.0,
-                            attempt_count=1
-                        )
-                        
-                    except Exception as e:
-                        return ScrapingResult(
-                            content=None,
-                            status=ScrapingStatus.FAILED,
-                            error_message=f"Scraping failed: {str(e)}",
-                            processing_time_seconds=1.0,
-                            attempt_count=1
-                        )
-                
-                async def secure_scrape(self, url):
-                    from src.domain.models import ScrapingRequest
-                    request = ScrapingRequest(url=str(url))
-                    return await self.scrape_content(request)
-            
-            scraping_service = ProductionScraper()
-            
-        except ImportError:
-            # Fallback to mock scraper
-            class MockScraper:
-                async def scrape_content(self, request):
-                    from src.domain.models import (ScrapingResult, URLInfo, ContentMetrics, 
-                                                 ScrapedContent, ContentType, ScrapingStatus)
-                    from datetime import datetime
-                    
-                    url = request.url
-                    url_info = URLInfo.from_url(str(url))
-                    content = f"Mock content for {url}. " * 30
-                    headings = ["Mock Heading", "Section 1", "Section 2"]
-                    links = ["https://example.com/link1", "https://example.com/link2"]
-                    
-                    metrics = ContentMetrics.calculate(content=content, links=links, headings=headings)
-                    
-                    scraped_content = ScrapedContent(
-                        url_info=url_info,
-                        title="Mock Page",
-                        headings=headings,
-                        main_content=content,
-                        links=links,
-                        meta_description="Mock meta description",
-                        meta_keywords=["mock", "content"],
-                        content_type=ContentType.ARTICLE,
-                        metrics=metrics,
-                        scraped_at=datetime.now(),
-                        status=ScrapingStatus.SUCCESS
-                    )
-                    
-                    return ScrapingResult(
-                        content=scraped_content,
-                        status=ScrapingStatus.SUCCESS,
-                        error_message=None,
-                        processing_time_seconds=1.0,
-                        attempt_count=1
-                    )
-
-                async def secure_scrape(self, url):
-                    from src.domain.models import ScrapingRequest
-                    request = ScrapingRequest(url=str(url))
-                    return await self.scrape_content(request)
-            
-            scraping_service = MockScraper()
+        # Use the real ProductionWebScraper for advanced scraping and image extraction
+        scraping_service = ProductionWebScraper()
         
-        # Initialize analysis service
-        analysis_service = ContentAnalysisService(scraping_service, llm_service)
+        # Initialize analysis service with proper database path
+        db_path = os.getenv("DATABASE_PATH", "/app/data/analysis_history.db")
+        analysis_service = ContentAnalysisService(scraping_service, llm_service, db_path)
         
         logger.info("Services initialized successfully")
         
@@ -389,6 +233,32 @@ async def health_check():
             providers_status["gemini"] = {"available": True, "cost_per_1k_tokens": 0.0, "max_tokens": 1048576}
         if os.getenv("ANTHROPIC_API_KEY"):
             providers_status["claude"] = {"available": True, "cost_per_1k_tokens": 0.25, "max_tokens": 200000}
+        
+        return HealthResponse(
+            status="healthy",
+            version="1.0.0",
+            services=services_status,
+            providers=providers_status
+        )
+        
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return HealthResponse(
+            status="unhealthy",
+            version="1.0.0",
+            services={"llm_service": "error", "analysis_service": "error", "scraping_service": "error"},
+            providers={}
+        )
+
+        # Initialize analysis service with proper database path
+        db_path = os.getenv("DATABASE_PATH", "/app/data/analysis_history.db")
+        analysis_service = ContentAnalysisService(scraping_service, llm_service, db_path)
+
+        logger.info("Services initialized successfully")
+
+    except Exception as e:
+        logger.error(f"Failed to initialize services: {e}")
+        raise
         
         return HealthResponse(
             status="healthy",
@@ -539,6 +409,7 @@ async def analyze_content(request: AnalysisRequest):
             analysis_id=getattr(result, 'analysis_id', f"analysis_{hash(str(request.url))}")[:8],
             url=str(request.url),
             status=status_value,
+            content_id=getattr(result, 'content_id', None),
             executive_summary=getattr(result, 'executive_summary', 'Analysis completed successfully with comprehensive insights.'),
             metrics=metrics_dict,
             insights=insights_dict,

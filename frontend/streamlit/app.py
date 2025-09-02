@@ -1,6 +1,6 @@
 """
 Enhanced Web Content Analyzer - Streamlit Interface
-WBS 2.4: Professional interface with advanced features and responsive design
+Professional interface with advanced features and responsive design
 """
 import streamlit as st
 
@@ -18,6 +18,7 @@ import json
 import sys
 import os
 import requests
+import logging
 from datetime import datetime
 from typing import Optional
 import plotly.graph_objects as go
@@ -36,12 +37,14 @@ try:
     from components.bulk_analyzer import BulkAnalyzer
     from components.rag_knowledge_repository import RAGKnowledgeRepository
     from components.knowledge_repository import IntelligentKnowledgeRepository
+    from components.image_gallery import ImageGallery
     from utils.responsive_layout import ResponsiveLayout, SessionStateManager
 except ImportError as e:
     st.error(f"Failed to import components: {e}")
     st.stop()
 
 # Initialize component instances
+logger = logging.getLogger(__name__)
 responsive_layout = ResponsiveLayout()
 session_manager = SessionStateManager()
 history_manager = AnalysisHistoryManager()
@@ -49,15 +52,8 @@ history_manager = AnalysisHistoryManager()
 # Configure backend URL based on environment
 def get_backend_url():
     """Get the appropriate backend URL based on the environment"""
-    # Check if we're running in Docker (check for typical Docker environment indicators)
-    import socket
-    try:
-        # Try to resolve the 'backend' hostname - only works in Docker
-        socket.gethostbyname('backend')
-        return "http://backend:8000"
-    except socket.gaierror:
-        # Fallback to localhost for local development
-        return "http://localhost:8000"
+    # Force localhost for local development
+    return "http://localhost:8000"
 
 BACKEND_URL = get_backend_url()
 
@@ -341,6 +337,7 @@ async def run_analysis(url: str, analysis_type: str, quality_preference: str, ma
                     self.analysis_id = data.get("analysis_id", "")
                     self.analysis_type = data.get("analysis_type", "comprehensive")
                     self.status = data.get("status", "completed")
+                    self.content_id = data.get("content_id")  # Database ID for images
                     self.executive_summary = data.get("executive_summary", "")
                     self.metrics = data.get("metrics", {})
                     self.insights = data.get("insights", {})
@@ -493,6 +490,27 @@ def display_analysis_results(result):
     # Report navigation sidebar (temporarily disabled to fix attribute errors)
     # outline = report_navigator.create_report_outline(result)
     # report_navigator.render_navigation_sidebar(outline)
+    
+    # Image Gallery Section
+    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+    
+    # Try to display images if content_id is available
+    try:
+        # Get content_id from the result object
+        content_id = getattr(result, 'content_id', None)
+        
+        if content_id:
+            image_gallery = ImageGallery(backend_url=BACKEND_URL)
+            image_gallery.render_image_gallery(content_id, "Extracted Images")
+        else:
+            # Show a placeholder for future image extraction
+            with st.expander("📷 Image Analysis", expanded=False):
+                st.info("🚧 Image extraction feature is being implemented. Images will appear here in future analyses.")
+                
+    except Exception as e:
+        logger.warning(f"Could not display images: {str(e)}")
+        with st.expander("📷 Image Analysis", expanded=False):
+            st.info("📷 Image extraction is available but could not load images for this analysis.")
     
     # Export section
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)

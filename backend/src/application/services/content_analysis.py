@@ -22,6 +22,7 @@ from ...domain.exceptions import LLMAnalysisError
 from ...application.interfaces.content_analysis import IContentAnalysisService
 from ...application.interfaces.llm import AnalysisRequest
 from ...application.interfaces.scraping import IWebScraper
+from ...infrastructure.persistence.content_repository import ContentRepository
 
 logger = logging.getLogger(__name__)
 
@@ -37,10 +38,12 @@ class ContentAnalysisService(IContentAnalysisService):
     
     def __init__(self, 
                  scraping_service: IWebScraper,
-                 llm_service):
+                 llm_service,
+                 db_path: str = "data/analysis_history.db"):
         """Initialize content analysis service with enhanced pipeline"""
         self.scraping_service = scraping_service
         self.llm_service = llm_service
+        self.content_repository = ContentRepository(db_path)
         self.analysis_cache: Dict[str, AnalysisResult] = {}
         
         # Initialize content categorization patterns
@@ -128,6 +131,15 @@ class ContentAnalysisService(IContentAnalysisService):
                 return result
             
             result.scraped_content = scraping_result.content
+            
+            # Save scraped content and images to database
+            content_id = None
+            if scraping_result.content:
+                content_id = self.content_repository.save_scraped_content(scraping_result.content)
+                logger.info(f"📁 Saved scraped content with ID: {content_id}")
+                
+                # Store content_id in the result for later use
+                result.content_id = content_id
             
             # Step 2: Enhanced content preprocessing and categorization
             await self._preprocess_content(result, analysis_type)

@@ -7,6 +7,7 @@ from .progress_tracker import AnalysisProgressTracker, BackgroundTaskManager
 from .report_navigator import ReportNavigator, ReportComparison
 from .history_manager import AnalysisHistoryManager
 from .bulk_analyzer import BulkAnalyzer
+from .image_gallery import ImageGallery
 
 __all__ = [
     'AnalysisProgressTracker',
@@ -14,5 +15,6 @@ __all__ = [
     'ReportNavigator', 
     'ReportComparison',
     'AnalysisHistoryManager',
-    'BulkAnalyzer'
+    'BulkAnalyzer',
+    'ImageGallery'
 ]

@@ -28,6 +28,32 @@ class ContentType(Enum):
     UNKNOWN = "unknown"
 
 
+class ImageType(Enum):
+    """Image classification types for different website images"""
+    LOGO = "logo"
+    HERO = "hero"
+    CONTENT = "content"
+    THUMBNAIL = "thumbnail"
+    ICON = "icon"
+    BANNER = "banner"
+    PRODUCT = "product"
+    AVATAR = "avatar"
+    BACKGROUND = "background"
+    DECORATION = "decoration"
+    UNKNOWN = "unknown"
+
+
+class ImageFormat(Enum):
+    """Supported image formats"""
+    JPEG = "jpeg"
+    PNG = "png"
+    WEBP = "webp"
+    GIF = "gif"
+    SVG = "svg"
+    BMP = "bmp"
+    UNKNOWN = "unknown"
+
+
 class ScrapingStatus(Enum):
     """Status codes for scraping operations"""
     SUCCESS = "success"
@@ -114,6 +140,86 @@ class URLInfo:
         is_root = self.path in root_paths
         logger.debug(f"URL {self.url} is_root_page: {is_root}")
         return is_root
+
+
+@dataclass(frozen=True)
+class ImageInfo:
+    """
+    Value object representing extracted image information.
+    Immutable to ensure data integrity.
+    """
+    original_url: str
+    alt_text: Optional[str] = None
+    title: Optional[str] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+    file_size: Optional[int] = None  # in bytes
+    image_format: ImageFormat = ImageFormat.UNKNOWN
+    image_type: ImageType = ImageType.UNKNOWN
+    context: Optional[str] = None  # Surrounding text context
+    is_decorative: bool = False  # True if image is purely decorative
+    loading_attribute: Optional[str] = None  # lazy, eager, etc.
+    
+    @property
+    def aspect_ratio(self) -> Optional[float]:
+        """Calculate aspect ratio if dimensions are available"""
+        if self.width and self.height and self.height > 0:
+            return self.width / self.height
+        return None
+    
+    @property
+    def is_optimized(self) -> bool:
+        """Check if image appears to be optimized based on format and size"""
+        if not self.file_size:
+            return False
+        
+        # Consider WebP as optimized format
+        if self.image_format == ImageFormat.WEBP:
+            return True
+        
+        # Basic size-based optimization check (< 100KB for content images)
+        if self.image_type in [ImageType.CONTENT, ImageType.THUMBNAIL]:
+            return self.file_size < 100_000  # 100KB
+        
+        # Stricter for icons (< 50KB)
+        if self.image_type == ImageType.ICON:
+            return self.file_size < 50_000  # 50KB
+        
+        return self.file_size < 200_000  # 200KB for other types
+    
+    @property
+    def has_accessibility_info(self) -> bool:
+        """Check if image has proper accessibility information"""
+        if self.is_decorative:
+            return self.alt_text == "" or self.alt_text is None
+        return bool(self.alt_text and self.alt_text.strip())
+
+
+@dataclass
+class ExtractedImage:
+    """
+    Represents an image extracted and processed from a website.
+    Includes both original metadata and processed file information.
+    """
+    info: ImageInfo
+    local_path: Optional[str] = None  # Path to saved image file
+    thumbnail_path: Optional[str] = None  # Path to generated thumbnail
+    download_status: ScrapingStatus = ScrapingStatus.SUCCESS
+    download_error: Optional[str] = None
+    extracted_at: datetime = field(default_factory=datetime.now)
+    id: Optional[int] = None  # Database ID (set after saving)
+    
+    @property
+    def is_downloaded(self) -> bool:
+        """Check if image has been successfully downloaded"""
+        return (self.download_status == ScrapingStatus.SUCCESS and 
+                self.local_path is not None)
+    
+    @property
+    def has_thumbnail(self) -> bool:
+        """Check if thumbnail has been generated"""
+        return (self.is_downloaded and 
+                self.thumbnail_path is not None)
 
 
 @dataclass
@@ -234,6 +340,7 @@ class ScrapedContent:
     metrics: ContentMetrics
     scraped_at: datetime
     status: ScrapingStatus
+    images: List[ExtractedImage] = field(default_factory=list)  # New field for extracted images
     
     def __post_init__(self):
         """Validate content after creation with proper error handling"""
@@ -554,6 +661,7 @@ class AnalysisResult:
     status: AnalysisStatus
     created_at: datetime
     completed_at: Optional[datetime] = None
+    content_id: Optional[int] = None  # Database ID for scraped content
     
     # Source Data
     scraped_content: Optional[ScrapedContent] = None
@@ -591,5 +699,14 @@ class AnalysisResult:
     def success(self):
         """Determine if the analysis was successful"""
         return self.status == AnalysisStatus.COMPLETED
+
+
+# Export all classes for proper imports
+__all__ = [
+    'ContentType', 'ImageType', 'ImageFormat', 'ScrapingStatus',
+    'URLInfo', 'ImageInfo', 'ExtractedImage', 'ScrapedContent',
+    'AnalysisType', 'AnalysisStatus', 'AnalysisMetrics', 'AnalysisInsights',
+    'AnalysisResult'
+]
 
 

@@ -36,14 +36,8 @@ class BulkAnalyzer:
     def __init__(self, api_base_url: str = None):
         # Configure backend URL based on environment
         if api_base_url is None:
-            import socket
-            try:
-                # Try to resolve the 'backend' hostname - only works in Docker
-                socket.gethostbyname('backend')
-                self.api_base_url = "http://backend:8000"
-            except socket.gaierror:
-                # Fallback to localhost for local development
-                self.api_base_url = "http://localhost:8000"
+            # Force localhost for local development
+            self.api_base_url = "http://localhost:8000"
         else:
             self.api_base_url = api_base_url
         self.max_urls = 20  # Increased limit - can analyze up to 20 URLs at once
