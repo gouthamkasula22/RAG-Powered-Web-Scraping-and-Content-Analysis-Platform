@@ -4,12 +4,31 @@ Debug script to check ChromaDB migration status
 """
 
 import sqlite3
-import chromadb
 import os
-from sentence_transformers import SentenceTransformer
+
+try:
+    import chromadb  # type: ignore[import-untyped]
+    CHROMADB_AVAILABLE = True
+except ImportError:
+    print("❌ ChromaDB not available. Install with: pip install chromadb")
+    CHROMADB_AVAILABLE = False
+
+try:
+    from sentence_transformers import SentenceTransformer  # type: ignore[import-untyped]
+    EMBEDDINGS_AVAILABLE = True
+except ImportError:
+    print("❌ SentenceTransformers not available. Install with: pip install sentence-transformers")
+    EMBEDDINGS_AVAILABLE = False
 
 def check_databases():
     print("=== Database Status Check ===")
+    
+    # Check dependencies first
+    if not CHROMADB_AVAILABLE:
+        print("⚠️ ChromaDB not available - ChromaDB checks will be skipped")
+    
+    if not EMBEDDINGS_AVAILABLE:
+        print("⚠️ SentenceTransformers not available - embedding checks will be skipped")
     
     # Check data directory
     data_dir = "data"

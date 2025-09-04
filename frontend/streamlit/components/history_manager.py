@@ -3,16 +3,32 @@ Enhanced History Manager with Persistent Storage
 WBS 2.4: Robust analysis history for 50+ analyses with advanced features
 """
 
-import streamlit as st
-import sqlite3
+# Standard library imports
 import json
-import pandas as pd
+import sqlite3
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional, Any
 from pathlib import Path
-import os
+from typing import List, Dict
+
+# Third-party imports
+import pandas as pd
+import streamlit as st
 
 class AnalysisHistoryManager:
+    """
+    Enhanced History Manager with Persistent Storage.
+    
+    Manages analysis history with SQLite persistence, advanced filtering,
+    bulk operations, and export capabilities for 50+ analyses.
+    
+    Features:
+    - Persistent SQLite storage
+    - Advanced filtering by date, score, status
+    - Bulk operations (delete, export)
+    - Chart visualizations
+    - CSV/PDF export
+    """
+
     def _ensure_table_exists(self):
         """Create analysis_history table if it does not exist."""
         with sqlite3.connect(self.db_path) as conn:
@@ -42,8 +58,11 @@ class AnalysisHistoryManager:
                     cursor.execute("DELETE FROM analyses WHERE id = ?", (analysis_id,))
                     deleted_count += cursor.rowcount
                 conn.commit()
+        except sqlite3.Error as e:
+            st.error(f"Database error during bulk delete: {e}")
+            return False
         except Exception as e:
-            st.error(f"Failed to delete from database: {e}")
+            st.error(f"Unexpected error during bulk delete: {e}")
             return False
 
         # Remove from session_state.analysis_results
@@ -51,8 +70,7 @@ class AnalysisHistoryManager:
             st.session_state.analysis_results = [a for a in st.session_state.analysis_results if a.get('id', getattr(a, 'id', None)) not in selected_ids]
 
         return deleted_count > 0
-    """Enhanced history manager with SQLite persistence and advanced features"""
-    
+
     def __init__(self, db_path: str = "data/analysis_history.db"):
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(exist_ok=True)

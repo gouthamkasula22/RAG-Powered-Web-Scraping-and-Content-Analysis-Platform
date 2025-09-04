@@ -4,13 +4,34 @@ Comprehensive ChromaDB migration from frontend database
 """
 
 import sqlite3
-import chromadb
-import numpy as np
-from sentence_transformers import SentenceTransformer
 import os
+
+try:
+    import chromadb  # type: ignore[import-untyped]
+    CHROMADB_AVAILABLE = True
+except ImportError:
+    print("❌ ChromaDB not available. Install with: pip install chromadb")
+    CHROMADB_AVAILABLE = False
+
+try:
+    import numpy as np  # type: ignore[import-untyped]
+    from sentence_transformers import SentenceTransformer  # type: ignore[import-untyped]
+    EMBEDDINGS_AVAILABLE = True
+except ImportError:
+    print("❌ SentenceTransformers not available. Install with: pip install sentence-transformers")
+    EMBEDDINGS_AVAILABLE = False
 
 def migrate_frontend_data_to_chromadb():
     print("🔄 Starting comprehensive migration from frontend database to ChromaDB...")
+    
+    # Check dependencies
+    if not CHROMADB_AVAILABLE:
+        print("❌ ChromaDB is not available. Please install it with: pip install chromadb")
+        return False
+        
+    if not EMBEDDINGS_AVAILABLE:
+        print("❌ SentenceTransformers is not available. Please install it with: pip install sentence-transformers")
+        return False
     
     # Database paths
     frontend_db = "frontend/streamlit/data/rag_knowledge_repository.db"

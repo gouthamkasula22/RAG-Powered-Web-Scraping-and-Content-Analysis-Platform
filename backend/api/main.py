@@ -74,8 +74,8 @@ app.add_middleware(
 app.add_middleware(
     TrustedHostMiddleware,
     allowed_hosts=[
-        "localhost", 
-        "127.0.0.1", 
+    "localhost",
+    "127.0.0.1",
         "*.localhost",
         "frontend",  # Frontend container hostname
         "backend",   # Backend container hostname

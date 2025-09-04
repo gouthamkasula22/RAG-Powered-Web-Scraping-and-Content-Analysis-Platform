@@ -17,56 +17,51 @@ def test_website_deletion():
     """Test website deletion functionality"""
     print("Testing Website Deletion Functionality...")
     
-    try:
-        from frontend.streamlit.components.rag_knowledge_repository import RAGKnowledgeRepository
-        
-        # Initialize RAG system
-        print("Initializing RAG system...")
-        rag_system = RAGKnowledgeRepository()
-        
-        print("RAG system initialized successfully")
-        
-        # Test website loading
-        print("\nTesting website management...")
-        websites = rag_system._get_available_websites()
-        print(f"Found {len(websites)} websites in knowledge base")
-        
-        if websites:
-            for i, website in enumerate(websites[:3], 1):
-                print(f"  {i}. {website['title']}")
-                print(f"     URL: {website['url']}")
-                print(f"     Chunks: {website.get('chunk_count', 0)}")
-        
-        print("\nWebsite Management Features:")
-        print("  Individual Website Deletion:")
-        print("    - Delete button next to each website")
-        print("    - Removes website and all its content chunks")
-        print("    - Database cleanup with proper cascading")
-        
-        print("  Clear All Functionality:")
-        print("    - Improved confirmation dialog")
-        print("    - Uses session state for proper confirmation flow")
-        print("    - Warns about permanent deletion")
-        print("    - Confirm/Cancel buttons for safety")
-        
-        print("  Professional UI Updates:")
-        print("    - Minimal emoji usage")
-        print("    - Clean, business-ready interface")
-        print("    - Intuitive button placement")
-        print("    - Professional confirmation dialogs")
-        
-        print("\nDatabase Operations Available:")
-        print("  - _delete_website(url): Remove specific website")
-        print("  - _clear_all_data(): Remove all websites and content")
-        print("  - Proper transaction handling and error management")
-        
-        return True
-        
-    except Exception as e:
-        print(f"Error during testing: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
+    from frontend.streamlit.components.rag_knowledge_repository import RAGKnowledgeRepository
+    
+    # Initialize RAG system
+    print("Initializing RAG system...")
+    rag_system = RAGKnowledgeRepository()
+    
+    print("RAG system initialized successfully")
+    assert rag_system is not None
+    
+    # Test website loading
+    print("\nTesting website management...")
+    websites = rag_system._get_available_websites()
+    print(f"Found {len(websites)} websites in knowledge base")
+    assert isinstance(websites, list)
+    
+    if websites:
+        for i, website in enumerate(websites[:3], 1):
+            print(f"  {i}. {website['title']}")
+            print(f"     URL: {website['url']}")
+            print(f"     Chunks: {website.get('chunk_count', 0)}")
+            assert 'title' in website
+            assert 'url' in website
+    
+    print("\nWebsite Management Features:")
+    print("  Individual Website Deletion:")
+    print("    - Delete button next to each website")
+    print("    - Removes website and all its content chunks")
+    print("    - Database cleanup with proper cascading")
+    
+    print("  Clear All Functionality:")
+    print("    - Improved confirmation dialog")
+    print("    - Uses session state for proper confirmation flow")
+    print("    - Warns about permanent deletion")
+    print("    - Confirm/Cancel buttons for safety")
+    
+    print("  Professional UI Updates:")
+    print("    - Minimal emoji usage")
+    print("    - Clean, business-ready interface")
+    print("    - Intuitive button placement")
+    print("    - Professional confirmation dialogs")
+    
+    print("\nDatabase Operations Available:")
+    print("  - _delete_website(url): Remove specific website")
+    print("  - _clear_all_data(): Remove all websites and content")
+    print("  - Proper transaction handling and error management")
 
 if __name__ == "__main__":
     success = test_website_deletion()
